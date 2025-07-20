@@ -8,6 +8,7 @@ from scipy.stats import linregress
 import heka_reader
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
+import git_save as myGit
 
 # --- parameters ---
 A_to_pA = 1e12
@@ -149,9 +150,18 @@ def CC_eval():
 
     output_folder_traces = os.path.join(output_folder, "traces")
     os.makedirs(output_folder_traces, exist_ok=True)
+    output_folder_used_data_and_code = os.path.join(output_folder, "used_data_and_code")
+    os.makedirs(output_folder_used_data_and_code, exist_ok=True)
 
     # --- Load Metadata ---
     metadata_df = pd.read_excel(metadata_file)
+    # save used data
+    metadata_df.to_excel(os.path.join(output_folder_used_data_and_code, "my_data.xlsx"), index=False)
+
+    # === GIT SAVE ===
+    # Provide the current script path (only works in .py, not notebooks)
+    script_path = __file__ if '__file__' in globals() else None
+    myGit.save_git_info(output_folder_used_data_and_code, script_path)
 
     # --- Results Storage ---
     results = []

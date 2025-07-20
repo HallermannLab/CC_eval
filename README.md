@@ -59,3 +59,8 @@ The script generates:
 - RMP: Customizable windows for baseline and response
 - Input Resistance: Two windows for baseline and steady-state response
 - AP Analysis: Configurable windows for stimulus periods
+
+## Acknowlegement
+
+I am using the heka reader provided by: https://github.com/campagnola/heka_reader
+

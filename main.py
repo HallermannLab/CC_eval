@@ -9,6 +9,7 @@ import heka_reader
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import git_save as myGit
+from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
 
 # --- parameters ---
 A_to_pA = 1e12
@@ -115,6 +116,9 @@ def ap_analysis(time, voltage):
         # Calculate half-duration points
         half_amplitude = (voltage[peak_idx] - voltage[th_idx]) / 2 + voltage[th_idx]
 
+        hd_start_idx = None
+        hd_end_idx = None
+
         # Find first crossing before peak
         for i in range(peak_idx, th_idx, -1):
             if voltage[i] <= half_amplitude:
@@ -127,10 +131,16 @@ def ap_analysis(time, voltage):
                 hd_end_idx = i
                 break
 
-        hd_start_v.append(voltage[hd_start_idx])
-        hd_start_t.append(time[hd_start_idx])
-        hd_end_v.append(voltage[hd_end_idx])
-        hd_end_t.append(time[hd_end_idx])
+        if hd_start_idx is not None and hd_end_idx is not None:
+            hd_start_v.append(voltage[hd_start_idx])
+            hd_start_t.append(time[hd_start_idx])
+            hd_end_v.append(voltage[hd_end_idx])
+            hd_end_t.append(time[hd_end_idx])
+        else:
+            hd_start_v.append(float('nan'))
+            hd_start_t.append(float('nan'))
+            hd_end_v.append(float('nan'))
+            hd_end_t.append(float('nan'))
 
     ap_number = len(th_v)
 
@@ -138,10 +148,6 @@ def ap_analysis(time, voltage):
 
 
 def CC_eval():
-    # --- Configuration ---
-    ROOT_FOLDER = "/Users/stefanhallermann/Library/CloudStorage/Dropbox/tmp/Rinako"
-    import_folder = os.path.join(ROOT_FOLDER, "in")
-    metadata_file = os.path.join(import_folder, "metadata.xlsx")
 
     # --- Create Output Folders ---
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -154,7 +160,7 @@ def CC_eval():
     os.makedirs(output_folder_used_data_and_code, exist_ok=True)
 
     # --- Load Metadata ---
-    metadata_df = pd.read_excel(metadata_file)
+    metadata_df = pd.read_excel(METADATA_FILE)
     # save used data
     metadata_df.to_excel(os.path.join(output_folder_used_data_and_code, "my_data.xlsx"), index=False)
 
@@ -169,13 +175,15 @@ def CC_eval():
 
     # --- Process Each Cell ---
     for cell_count, row in metadata_df.iterrows():
+        print(f"Processing cell {cell_count + 1}: {row['file_name']}")
+
         file_name = row['file_name']
         rmp_series = row['rmp_series']
         rin_series = row['rin_series']
         ap_rheo_series = row['ap_rheo_series']
         ap_max_series = row['ap_max_series']
 
-        dat_path = os.path.join(import_folder, file_name)
+        dat_path = os.path.join(IMPORT_FOLDER, file_name)
         try:
             bundle = heka_reader.Bundle(dat_path)
         except Exception as e:
@@ -439,5 +447,15 @@ def CC_eval():
 
     print(f"Analysis complete. Results saved to {excel_output_path}")
 
+def start_browser():
+    # Import and start the browser
+    from browser import app, win
+    win.show()
+    if sys.flags.interactive == 0:
+        app.exec_()
+
 if __name__ == '__main__':
     CC_eval()
+    start_browser()  # This will start the browser after CC_eval completes
+
+

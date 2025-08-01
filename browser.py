@@ -3,6 +3,9 @@ import pyqtgraph as pg
 import numpy as np
 import heka_reader
 from pyqtgraph.Qt import QtWidgets, QtCore
+import pandas as pd
+# Import the paths from main
+from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
 
 
 app = pg.mkQApp()
@@ -48,11 +51,38 @@ win.show()
 
 
 def load_clicked():
-    # Display a file dialog to select a .dat file
-    file_name, _ = QtWidgets.QFileDialog.getOpenFileName()
-    if file_name == '':
-        return
-    load(file_name)
+    """Display a popup menu with available .dat files from metadata."""
+    try:
+        # Read metadata file
+        metadata_df = pd.read_excel(METADATA_FILE)
+        file_names = metadata_df['file_name'].tolist()
+
+        # Create popup menu
+        menu = QtWidgets.QMenu()
+        for fname in file_names:
+            action = menu.addAction(fname)
+
+        # Show menu at button position
+        selected_action = menu.exec_(load_btn.mapToGlobal(QtCore.QPoint(0, load_btn.height())))
+
+        if selected_action:
+            selected_file = selected_action.text()
+            dat_path = os.path.join(IMPORT_FOLDER, selected_file)
+            if os.path.exists(dat_path):
+                load(dat_path)
+            else:
+                QtWidgets.QMessageBox.warning(
+                    win,
+                    "File Not Found",
+                    f"The file {selected_file} was not found in the import folder."
+                )
+    except Exception as e:
+        QtWidgets.QMessageBox.critical(
+            win,
+            "Error",
+            f"Error loading metadata: {str(e)}"
+        )
+
 
 load_btn.clicked.connect(load_clicked)
 

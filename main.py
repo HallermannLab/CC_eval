@@ -5,16 +5,22 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import linregress
+from scipy import signal
 import heka_reader
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import git_save as myGit
 from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
+from config import analysis_points
+from collections import defaultdict
+import json
+
 
 # --- parameters ---
 A_to_pA = 1e12
 V_to_mV = 1e3
 
+# windows for analysis estimating the current jump
 window1_rin_start = 0.01
 window1_rin_end = 0.09
 window2_rin_start = 0.30
@@ -32,13 +38,14 @@ window2_ap_max_end = 0.39
 
 # parameters for AP detection
 v_threshold = -20
-dvdt_threshold = 30
-window_for_searching_threshold = 0.001
-window_for_searching_ahp = 0.001
+dvdt_threshold = 10
+filter_cut_off = 3000 #Hz
+window_for_searching_threshold = 0.002
+window_for_searching_ahp = 0.01
 minimal_ap_interval = 0.001
 minimal_ap_duration = 0.0005
 maximal_ap_duration = 0.005
-maximal_relative_amplitude_decline = 0.7
+maximal_relative_amplitude_decline = 0.3
 
 
 def ap_analysis(time, voltage):
@@ -64,9 +71,18 @@ def ap_analysis(time, voltage):
         dvdt_v: max dV/dt values
         dvdt_t: max dV/dt times
     """
-    # Calculate derivative for threshold detection
+    # Apply low-pass filter to voltage trace
     dt = time[1] - time[0]
+    nyquist = 0.5 / dt
+    cutoff_normalized = filter_cut_off / nyquist
+    b, a = signal.butter(2, cutoff_normalized, 'low')
+    voltage = signal.filtfilt(b, a, voltage) # CAVE overwrites the trace with the filtered one
+
+    # Calculate derivative using filtered trace
     d1 = np.diff(voltage) / dt
+    d1_in_V_per_s = d1 / V_to_mV
+    
+
 
     # Find threshold crossings where voltage crosses v_threshold
     threshold_idx = np.where((voltage[:-1] < v_threshold) & (voltage[1:] >= v_threshold))[0]
@@ -91,27 +107,22 @@ def ap_analysis(time, voltage):
         end_idx = min(len(voltage) - 1, idx + int(window_for_searching_threshold / dt))
 
         # Find precise threshold where dV/dt crosses threshold
-        window_d1 = d1[start_idx:end_idx]
-        th_idx = start_idx + np.where(window_d1 >= dvdt_threshold)[0][0]
-
-        th_v.append(voltage[th_idx])
-        th_t.append(time[th_idx])
+        window_d1 = d1_in_V_per_s[start_idx:end_idx]
+        th_idx_candidates = np.where(window_d1 >= dvdt_threshold)[0]
+        if len(th_idx_candidates) == 0:
+            # Handle case where no threshold crossing is found
+            continue  # Skip this iteration of the loop
+        th_idx = start_idx + th_idx_candidates[0]
 
         # Find peak
         peak_idx = th_idx + np.argmax(voltage[th_idx:th_idx + int(maximal_ap_duration / dt)])
-        p_v.append(voltage[peak_idx])
-        p_t.append(time[peak_idx])
 
         # Find AHP
         ahp_window = voltage[peak_idx:peak_idx + int(window_for_searching_ahp / dt)]
         ahp_idx = peak_idx + np.argmin(ahp_window)
-        ahp_v.append(voltage[ahp_idx])
-        ahp_t.append(time[ahp_idx])
 
         # Max dV/dt
-        dvdt_idx = th_idx + np.argmax(d1[th_idx:peak_idx])
-        dvdt_v.append(d1[dvdt_idx])
-        dvdt_t.append(time[dvdt_idx])
+        dvdt_idx = th_idx + np.argmax(d1_in_V_per_s[th_idx:peak_idx])
 
         # Calculate half-duration points
         half_amplitude = (voltage[peak_idx] - voltage[th_idx]) / 2 + voltage[th_idx]
@@ -131,18 +142,36 @@ def ap_analysis(time, voltage):
                 hd_end_idx = i
                 break
 
-        if hd_start_idx is not None and hd_end_idx is not None:
+        # Validate AP before appending
+        half_duration = time[hd_end_idx] - time[hd_start_idx]
+        ap_amplitude = voltage[peak_idx] - voltage[th_idx]
+
+        # Calculate relative amplitude (relative to first AP)
+        relative_amplitude = 1.0  # Default for first AP
+        if len(p_v) > 0:  # If we already have APs
+            first_ap_amplitude = p_v[0] - th_v[0]
+            relative_amplitude = ap_amplitude / first_ap_amplitude
+
+        # Check if this is first AP or if interval from previous AP is sufficient
+        is_valid_interval = len(p_t) == 0 or (time[peak_idx] - p_t[-1] > minimal_ap_interval)
+
+        if (is_valid_interval and
+                minimal_ap_duration <= half_duration <= maximal_ap_duration and
+                relative_amplitude >= maximal_relative_amplitude_decline):
+            th_v.append(voltage[th_idx])
+            th_t.append(time[th_idx])
+            p_v.append(voltage[peak_idx])
+            p_t.append(time[peak_idx])
+            ahp_v.append(voltage[ahp_idx])
+            ahp_t.append(time[ahp_idx])
+            dvdt_v.append(voltage[dvdt_idx])
+            dvdt_t.append(time[dvdt_idx])
             hd_start_v.append(voltage[hd_start_idx])
             hd_start_t.append(time[hd_start_idx])
             hd_end_v.append(voltage[hd_end_idx])
             hd_end_t.append(time[hd_end_idx])
-        else:
-            hd_start_v.append(float('nan'))
-            hd_start_t.append(float('nan'))
-            hd_end_v.append(float('nan'))
-            hd_end_t.append(float('nan'))
 
-    ap_number = len(th_v)
+    ap_number = len(p_v)
 
     return ap_number, th_v, th_t, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t
 
@@ -203,6 +232,7 @@ def CC_eval():
         # ==========================================================================================
         try:
             series_id = int(rmp_series)
+
             n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
             voltage_trace = V_to_mV * bundle.data[group_id, series_id, 0, 0]
 
@@ -321,6 +351,8 @@ def CC_eval():
         axs[4].set_xlabel("Time (s)")
 
         rheobase = None
+        sweep_points = None  # Default value when no APs are detected
+
         for sweep_id in range(n_sweeps):
             voltage = V_to_mV * bundle.data[group_id, series_id, sweep_id, 0]
             current = A_to_pA * bundle.data[group_id, series_id, sweep_id, 1]
@@ -333,6 +365,20 @@ def CC_eval():
             ap_number, th_v, th_t, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
                 time, voltage)
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
+            if ap_number > 0:
+                sweep_points = {
+                    'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                    'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
+                    'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
+                    'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
+                    'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
+                    'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
+                }
+                # Store the analysis points in the nested dictionary
+                analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
+                # Log the structure of analysis points:
+                #print(f"Storing points: file_name={file_name}, group_id={group_id}, series_id={series_id}, sweep_id={sweep_id}, trace_id={0}")
+                #print(f"Points to store: {json.dumps(sweep_points, indent=2)}")
 
             if rheobase is None and ap_number > 0:
                 rheobase = di
@@ -388,6 +434,21 @@ def CC_eval():
 
             ap_number, th_v, th_t, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
                 time, voltage)
+            #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
+            if ap_number > 0:
+                sweep_points = {
+                    'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                    'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
+                    'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
+                    'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
+                    'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
+                    'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
+                }
+                # Store the analysis points in the nested dictionary
+                analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
+                # Log the structure of analysis points:
+                #print(f"Storing points: file_name={file_name}, group_id={group_id}, series_id={series_id}, sweep_id={sweep_id}, trace_id={0}")
+                #print(f"Points to store: {json.dumps(sweep_points, indent=2)}")
 
             if ap_number > max_ap_number:
                 max_ap_number = ap_number

@@ -618,7 +618,8 @@ class Data(object):
         fmt = bytearray(trace.DataFormat)[0]
         dtype = [np.int16, np.int32, np.float16, np.float32][fmt]
         data = np.fromfile(fh, count=trace.DataPoints, dtype=dtype)
-        return data * trace.DataScaler + trace.ZeroData
+        #return data * trace.DataScaler + trace.ZeroData
+        return data * trace.DataScaler # removed ZeroData addition (SH) because this addition increased the voltage values by about a factor of 2.
 
 
 class Bundle(object):

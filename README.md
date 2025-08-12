@@ -6,8 +6,8 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
 
 - Resting Membrane Potential (RMP) analysis
 - Input Resistance (Rin) calculation
-- Action Potential (AP) detection and analysis including:
-  - Rheobase determination
+- Rheobase determination
+- Action Potential (AP) detection and analysis including low-pass filtering of voltage trace:
   - AP threshold detection
   - AP amplitude calculation
   - AP half-width measurement
@@ -15,18 +15,18 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
 - Automated batch processing of multiple recordings
 - Generation of detailed visualization plots
 - Export of results to Excel
+- Visualization of action potential parameters for individual action potentials in a browser
 
 ## Installation
 
 1. Clone this repository
-## Install required packages:
-
-see requirements.txt
+2. Install required packages:
+   - See `requirements.txt`.
 
 ## Usage
 
 1. Prepare your data:
-   - Place your HEKA data files in the input folder
+   - Place your HEKA data files in the input folder.
    - Create a metadata Excel file (`metadata.xlsx`) with the following columns:
      - file_name
      - rmp_series
@@ -35,8 +35,8 @@ see requirements.txt
      - ap_max_series
 
 2. Configure parameters in the script:
-   - Adjust analysis windows if needed
-   - Modify AP detection parameters if required
+   - Adjust analysis windows if needed.
+   - Modify AP detection parameters if required.
 
 3. Run the analysis:
 
@@ -44,23 +44,11 @@ see requirements.txt
 
 The script generates:
 - A timestamped output folder containing:
-  - Individual PDF files with analysis plots for each recording
-  - An Excel file (`results.xlsx`) with compiled analysis results
+  - Individual PDF files with analysis plots for each recording.
+  - An Excel file (`results.xlsx`) with compiled analysis results.
 
-## Analysis Parameters
+Additionally, determined action potential parameters can be visualized for each action potential in an interactive browser interface.
 
-### Action Potential Detection
-- Voltage threshold: -20 mV
-- dV/dt threshold: 30 mV/ms
-- Minimum AP interval: 1 ms
-- AP duration limits: 0.5-5 ms
+## Acknowledgement
 
-### Analysis Windows
-- RMP: Customizable windows for baseline and response
-- Input Resistance: Two windows for baseline and steady-state response
-- AP Analysis: Configurable windows for stimulus periods
-
-## Acknowlegement
-
-I am using the heka reader provided by: https://github.com/campagnola/heka_reader
-
+I am using the HEKA reader provided by: [https://github.com/campagnola/heka_reader](https://github.com/campagnola/heka_reader)

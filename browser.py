@@ -6,6 +6,8 @@ from pyqtgraph.Qt import QtWidgets, QtCore
 import pandas as pd
 # Import the paths from main
 from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
+from config import analysis_points
+import json
 
 
 app = pg.mkQApp()
@@ -143,12 +145,57 @@ def replot():
         index = sel.index
         if len(index) < 4:
             return
+
+        # Extract indices from the selection
+        group_id = index[0]
+        series_id = index[1]
+        sweep_id = index[2]
+        trace_id = index[3]
+
         trace = sel.node
         plot.setLabel('bottom', trace.XUnit)
         plot.setLabel('left', trace.Label, units=trace.YUnit)
         data = bundle.data[index]
         time = np.linspace(trace.XStart, trace.XStart + trace.XInterval * (len(data) - 1), len(data))
+        # Plot the main trace
         plot.plot(time, data)
+
+        # Get the file name from the bundle
+        file_name = os.path.basename(bundle.file_name)
+
+        # Check if we have analysis points for this file and indices
+        #print(f"Looking for points in file: {file_name}")
+        #print(f"Existing analysis_points: {json.dumps(analysis_points, indent=2)}")
+        #print(f"Points to plot: {points}")
+
+        if (file_name in analysis_points and group_id in analysis_points[file_name] and series_id in analysis_points[file_name][group_id] and sweep_id in analysis_points[file_name][group_id][series_id] and trace_id in analysis_points[file_name][group_id][series_id][sweep_id]):
+            points = analysis_points[file_name][group_id][series_id][sweep_id][trace_id]
+            # Plot each type of point with different symbols and colors
+            symbols = {
+                'threshold': ('o', 'red', 'Threshold'),
+                'half_duration_start': ('s', 'blue', 'Half Duration Start'),
+                'half_duration_end': ('s', 'green', 'Half Duration End'),
+                'peak': ('t', 'yellow', 'Peak'),
+                'ahp': ('d', 'purple', 'AHP'),
+                'dvdt_max': ('p', 'cyan', 'Max dV/dt')
+            }
+
+            for point_type, (symbol, color, label) in symbols.items():
+                if points[point_type]:  # If we have points of this type
+                    t_points, v_points = zip(*points[point_type])
+                    scatter = pg.ScatterPlotItem(
+                        x=t_points,
+                        y=v_points,
+                        symbol=symbol,
+                        size=10,
+                        pen=pg.mkPen(None),
+                        brush=pg.mkBrush(color),
+                        name=label
+                    )
+                    plot.addItem(scatter)
+
+    # Add legend
+    plot.addLegend()
 
 
 tree.itemSelectionChanged.connect(replot)

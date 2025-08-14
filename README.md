@@ -39,6 +39,13 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
    - Modify AP detection parameters if required.
 
 3. Run the analysis:
+   - Execute `main.py` to perform the full analysis and automatically launch the browser interface.
+
+4. Browser interface:
+   - After running `main.py`, the browser interface will automatically start, in which various options for zoom in and out exist.
+   - The etermined action potential parameters can be visualized for each action potential in an interactive browser interface.
+   - The browser can also be launched separately by running `browser.py` directly (useful for reviewing results without re-running the analysis).
+
 
 ## Output
 
@@ -46,9 +53,11 @@ The script generates:
 - A timestamped output folder containing:
   - Individual PDF files with analysis plots for each recording.
   - An Excel file (`results.xlsx`) with compiled analysis results.
-
-Additionally, determined action potential parameters can be visualized for each action potential in an interactive browser interface.
+  - A copy of `analysis_points.json` for documentation purposes.
+- An `analysis_points.json` file in the input folder containing all detected action potential parameters (this file is overwritten with each analysis run).
 
 ## Acknowledgement
 
-I am using the HEKA reader provided by: [https://github.com/campagnola/heka_reader](https://github.com/campagnola/heka_reader)
+I am greatful for using the HEKA reader and the trace browser provided by: [https://github.com/campagnola/heka_reader](https://github.com/campagnola/heka_reader)
+
+I have modified the trace browser for allowing the selection of the files from the metadata and for superposition of the analysis point of the action potentials.

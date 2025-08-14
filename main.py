@@ -11,7 +11,7 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import git_save as myGit
 from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
-from config import analysis_points
+#from config import analysis_points
 from collections import defaultdict
 import json
 
@@ -179,7 +179,7 @@ def ap_analysis(time, voltage):
 def CC_eval():
 
     # --- Create Output Folders ---
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
     output_folder = os.path.join(ROOT_FOLDER, f"output_SH_{timestamp}")
     os.makedirs(output_folder, exist_ok=True)
 
@@ -192,6 +192,17 @@ def CC_eval():
     metadata_df = pd.read_excel(METADATA_FILE)
     # save used data
     metadata_df.to_excel(os.path.join(output_folder_used_data_and_code, "my_data.xlsx"), index=False)
+
+    # initialize analysis points structure
+    analysis_points = defaultdict(
+        lambda: defaultdict(
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(list)
+                )
+            )
+        )
+    )
 
     # === GIT SAVE ===
     # Provide the current script path (only works in .py, not notebooks)
@@ -471,11 +482,11 @@ def CC_eval():
             axs[7].legend()
         axs[7].grid(True)
 
-
         # Turn off unused subplots
         # for i in range(4, 8):
         #    axs[i].set_visible(False)
-
+ 
+        # ==========================================================================================
         # --- Store results ---
         results.append({
             "cell_count": cell_count + 1,
@@ -501,12 +512,29 @@ def CC_eval():
         plt.savefig(os.path.join(output_folder_traces, pdf_filename))
         plt.close()
 
+
+
     # --- Save Results to Excel ---
     results_df = pd.DataFrame(results)
     excel_output_path = os.path.join(output_folder, "results.xlsx")
     results_df.to_excel(excel_output_path, index=False)
 
+    # Save analysis points to JSON file
+    analysis_points_path = os.path.join(IMPORT_FOLDER, "analysis_points.json")
+    analysis_points_output_path = os.path.join(output_folder_used_data_and_code, "analysis_points.json")
+
+    # Convert defaultdict to regular dict for JSON serialization
+    analysis_points_dict = json.loads(json.dumps(analysis_points, default=lambda o: {str(k): v for k, v in o.items()}))
+
+    # Save to both locations
+    with open(analysis_points_path, 'w') as f:
+        json.dump(analysis_points_dict, f, indent=2)
+    with open(analysis_points_output_path, 'w') as f:
+        json.dump(analysis_points_dict, f, indent=2)
+
     print(f"Analysis complete. Results saved to {excel_output_path}")
+    print(f"Analysis points saved to {analysis_points_path}")
+
 
 def start_browser():
     # Import and start the browser

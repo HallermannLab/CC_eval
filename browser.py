@@ -6,9 +6,11 @@ from pyqtgraph.Qt import QtWidgets, QtCore
 import pandas as pd
 # Import the paths from main
 from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
-from config import analysis_points
+#from config import analysis_points
 import json
 
+
+analysis_points = {}
 
 app = pg.mkQApp()
 
@@ -43,6 +45,7 @@ vsplit.addWidget(data_tree)
 
 # Plot for displaying trace data
 plot = pg.PlotWidget()
+plot.addLegend()  # Add legend once during initialization
 hsplit.addWidget(plot)
 
 # Resize and show window
@@ -54,10 +57,25 @@ win.show()
 
 def load_clicked():
     """Display a popup menu with available .dat files from metadata."""
+    global analysis_points  # Declare as global to ensure updates are accessible everywhere
     try:
         # Read metadata file
         metadata_df = pd.read_excel(METADATA_FILE)
         file_names = metadata_df['file_name'].tolist()
+
+        # Read analysis points
+        try:
+            analysis_points_path = os.path.join(IMPORT_FOLDER, "analysis_points.json")
+            if os.path.exists(analysis_points_path):
+                with open(analysis_points_path, 'r') as f:
+                    analysis_points = json.load(f)
+                    #print(f"Loaded analysis points: {analysis_points}")  # Debug check
+            else:
+                print("analysis_points.json not found")  # Debug output
+                analysis_points = {}
+        except Exception as e:
+            print(f"Error loading analysis points: {e}")
+            analysis_points = {}  # Ensure default initialization
 
         # Create popup menu
         menu = QtWidgets.QMenu()
@@ -145,12 +163,18 @@ def replot():
         index = sel.index
         if len(index) < 4:
             return
+        # These are integers from the tree selection
+        group_id = index[0]  # e.g., 0 (integer)
+        series_id = index[1]  # e.g., 1 (integer)
+        sweep_id = index[2]  # e.g., 2 (integer)
+        trace_id = index[3]  # e.g., 0 (integer)
 
-        # Extract indices from the selection
-        group_id = index[0]
-        series_id = index[1]
-        sweep_id = index[2]
-        trace_id = index[3]
+        # Check if we have analysis points for this file and indices
+        # Convert numeric indices to strings to match JSON structure
+        group_key = str(group_id)
+        series_key = str(series_id)
+        sweep_key = str(sweep_id)
+        trace_key = str(trace_id)
 
         trace = sel.node
         plot.setLabel('bottom', trace.XUnit)
@@ -168,8 +192,12 @@ def replot():
         #print(f"Existing analysis_points: {json.dumps(analysis_points, indent=2)}")
         #print(f"Points to plot: {points}")
 
-        if (file_name in analysis_points and group_id in analysis_points[file_name] and series_id in analysis_points[file_name][group_id] and sweep_id in analysis_points[file_name][group_id][series_id] and trace_id in analysis_points[file_name][group_id][series_id][sweep_id]):
-            points = analysis_points[file_name][group_id][series_id][sweep_id][trace_id]
+        if (file_name in analysis_points and
+                group_key in analysis_points[file_name] and
+                series_key in analysis_points[file_name][group_key] and
+                sweep_key in analysis_points[file_name][group_key][series_key] and
+                trace_key in analysis_points[file_name][group_key][series_key][sweep_key]):
+            points = analysis_points[file_name][group_key][series_key][sweep_key][trace_key]
             # Plot each type of point with different symbols and colors
             symbols = {
                 'threshold': ('o', 'red', 'Threshold'),
@@ -194,16 +222,9 @@ def replot():
                     )
                     plot.addItem(scatter)
 
-    # Add legend
-    plot.addLegend()
-
 
 tree.itemSelectionChanged.connect(replot)
 
-# Optional: Load demo data if present
-demo = 'DemoV9Bundle.dat'
-if os.path.isfile(demo):
-    load(demo)
 
 if __name__ == '__main__':
     if sys.flags.interactive == 0:

@@ -59,7 +59,7 @@ The script generates:
 
 I am greatful for using the HEKA reader and the trace browser provided by: [https://github.com/campagnola/heka_reader](https://github.com/campagnola/heka_reader)
 
-I have modified the trace browser for allowing the selection of the files from the metadata and for superposition of the analysis point of the action potentials.
+I have modified the trace browser for allowing the selection of the files from the metadata and for superposition of the analysis points of the action potentials.
 
 ## Individual Cell Parameters (individual-parameters branch)
 

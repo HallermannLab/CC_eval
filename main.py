@@ -21,6 +21,8 @@ import json
 A_to_pA = 1e12
 V_to_mV = 1e3
 
+"""
+These values are now imported from the metadata file (metadata_individual.xlsx)
 # windows for analysis estimating the current jump
 window1_rin_start = 0.01
 window1_rin_end = 0.09
@@ -47,22 +49,35 @@ minimal_ap_interval = 0.001
 minimal_ap_duration = 0.0005
 maximal_ap_duration = 0.005
 maximal_relative_amplitude_decline = 0.3
+"""
 
 
-def ap_analysis(time, voltage):
+def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+                window_for_searching_threshold, window_for_searching_ahp,
+                minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                maximal_relative_amplitude_decline):
+
+
     """
     Analyze action potential features from voltage trace
 
     Args:
         time: time points array (seconds)
         voltage: voltage trace array (mV)
+        v_threshold: voltage threshold for AP detection (mV)
+        dvdt_threshold: dV/dt threshold for AP detection (V/s)
+        filter_cut_off: cutoff frequency for low-pass filter (Hz)
+        window_for_searching_threshold: time window for finding threshold (s)
+        window_for_searching_ahp: time window for finding AHP (s)
+        minimal_ap_interval: minimum time between APs (s)
+        minimal_ap_duration: minimum AP duration (s)
+        maximal_ap_duration: maximum AP duration (s)
+        maximal_relative_amplitude_decline: maximum allowed amplitude decline
 
     Returns:
         ap_number: number of APs detected
         th_v: threshold voltages
         th_t: threshold times
-        th_v_2nd: threshold voltages from 2nd derivative
-        th_t_2nd: threshold times from 2nd derivative
         th_v_2nd: threshold voltages from 2nd derivative
         th_t_2nd: threshold times from 2nd derivative
         hd_start_t: half-duration start times
@@ -156,7 +171,11 @@ def ap_analysis(time, voltage):
                 hd_end_idx = i
                 break
 
-        # Validate AP before appending
+        # Skip this AP if we couldn't find valid half-duration points
+        if hd_start_idx is None or hd_end_idx is None:
+            continue
+
+        # For validation of the AP before appending
         half_duration = time[hd_end_idx] - time[hd_start_idx]
         ap_amplitude = voltage[peak_idx] - voltage[th_idx]
 
@@ -238,6 +257,31 @@ def CC_eval():
         rin_series = row['rin_series']
         ap_rheo_series = row['ap_rheo_series']
         ap_max_series = row['ap_max_series']
+
+        window1_rin_start = row['window1_rin_start']
+        window1_rin_end = row['window1_rin_end']
+        window2_rin_start = row['window2_rin_start']
+        window2_rin_end = row['window2_rin_end']
+
+        window1_ap_rheo_start = row['window1_ap_rheo_start']
+        window1_ap_rheo_end = row['window1_ap_rheo_end']
+        window2_ap_rheo_start = row['window2_ap_rheo_start']
+        window2_ap_rheo_end = row['window2_ap_rheo_end']
+
+        window1_ap_max_start = row['window1_ap_max_start']
+        window1_ap_max_end = row['window1_ap_max_end']
+        window2_ap_max_start = row['window2_ap_max_start']
+        window2_ap_max_end = row['window2_ap_max_end']
+
+        v_threshold = row['v_threshold']
+        dvdt_threshold = row['dvdt_threshold']
+        filter_cut_off = row['filter_cut_off']
+        window_for_searching_threshold = row['window_for_searching_threshold']
+        window_for_searching_ahp = row['window_for_searching_ahp']
+        minimal_ap_interval = row['minimal_ap_interval']
+        minimal_ap_duration = row['minimal_ap_duration']
+        maximal_ap_duration = row['maximal_ap_duration']
+        maximal_relative_amplitude_decline = row['maximal_relative_amplitude_decline']
 
         dat_path = os.path.join(IMPORT_FOLDER, file_name)
         try:
@@ -390,7 +434,10 @@ def CC_eval():
             di = current[idx2].mean() - current[idx1].mean()
 
             ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
-                time, voltage)
+                time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+                window_for_searching_threshold, window_for_searching_ahp,
+                minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                maximal_relative_amplitude_decline)
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
             if ap_number > 0:
                 sweep_points = {
@@ -467,7 +514,10 @@ def CC_eval():
             di = current[idx2].mean() - current[idx1].mean()
 
             ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
-                time, voltage)
+                time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+                window_for_searching_threshold, window_for_searching_ahp,
+                minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                maximal_relative_amplitude_decline)
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
             if ap_number > 0:
                 sweep_points = {

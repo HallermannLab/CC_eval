@@ -46,7 +46,6 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
    - The etermined action potential parameters can be visualized for each action potential in an interactive browser interface.
    - The browser can also be launched separately by running `browser.py` directly (useful for reviewing results without re-running the analysis).
 
-
 ## Output
 
 The script generates:
@@ -61,3 +60,57 @@ The script generates:
 I am greatful for using the HEKA reader and the trace browser provided by: [https://github.com/campagnola/heka_reader](https://github.com/campagnola/heka_reader)
 
 I have modified the trace browser for allowing the selection of the files from the metadata and for superposition of the analysis point of the action potentials.
+
+## Individual Cell Parameters (individual-parameters branch)
+
+The software supports two parameter configuration modes:
+
+### Default Mode (main branch)
+Uses uniform parameters defined globally for all cells.
+
+### Individual Parameters Mode (individual-parameters branch)
+
+The `individual-parameters` branch allows **cell-specific parameter customization**, which is particularly useful when:
+
+- Different cell types require different analysis parameters
+- Individual recordings have varying signal characteristics  
+- You need to optimize parameters for specific experimental conditions
+- Recording quality varies between cells
+
+#### How to Use Individual Parameters
+
+1. **Switch to the individual-parameters branch:**
+   ```bash
+   git checkout individual-parameters
+   ```
+
+2. **Update your metadata file:**
+   The metadata Excel file should include individual parameter columns. Each row can have its own parameter values:
+
+   | file_name | v_threshold | dvdt_threshold | filter_cut_off | minimal_ap_duration | window1_rin_start | ... |
+   |-----------|-------------|----------------|----------------|---------------------|-------------------|-----|
+   | cell_001.dat | -25 | 15 | 1500 | 0.0005 | 0.01 | ... |
+   | cell_002.dat | -30 | 12 | 2000 | 0.0007 | 0.01 | ... |
+   | cell_003.dat | -20 | 18 | 1200 | 0.0004 | 0.01 | ... |
+
+#### Supported Individual Parameters
+
+**Action Potential Detection:**
+- `v_threshold`: Voltage threshold for AP detection (mV)
+- `dvdt_threshold`: dV/dt threshold for AP detection (V/s)  
+- `filter_cut_off`: Cutoff frequency for low-pass filter (Hz)
+- `window_for_searching_threshold`: Time window for finding threshold (s)
+- `window_for_searching_ahp`: Time window for finding AHP (s)
+- `minimal_ap_interval`: Minimum time between APs (s)
+- `minimal_ap_duration`: Minimum AP duration (s)
+- `maximal_ap_duration`: Maximum AP duration (s)
+- `maximal_relative_amplitude_decline`: Maximum allowed amplitude decline
+
+**Analysis Windows:**
+- `window1_rin_start/end`: Time windows for input resistance analysis
+- `window2_rin_start/end`
+- `window1_ap_rheo_start/end`: Time windows for rheobase analysis
+- `window2_ap_rheo_start/end` 
+- `window1_ap_max_start/end`: Time windows for maximum AP analysis
+- `window2_ap_max_start/end`
+

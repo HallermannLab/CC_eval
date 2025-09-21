@@ -8,7 +8,7 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
 - Input Resistance (Rin) calculation
 - Rheobase determination
 - Action Potential (AP) detection and analysis including low-pass filtering of voltage trace:
-  - AP threshold detection
+  - AP threshold detection (based on both a fixed dV/dt value of the 1st derivative and the maximum of the 2nd derivative)
   - AP amplitude calculation
   - AP half-width measurement
   - Maximum firing rate analysis

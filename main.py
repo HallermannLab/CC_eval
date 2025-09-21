@@ -4,6 +4,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.misc import derivative
 from scipy.stats import linregress
 from scipy import signal
 import heka_reader
@@ -39,7 +40,7 @@ window2_ap_max_end = 0.39
 # parameters for AP detection
 v_threshold = -20
 dvdt_threshold = 10
-filter_cut_off = 3000 #Hz
+filter_cut_off = 1500 #Hz
 window_for_searching_threshold = 0.002
 window_for_searching_ahp = 0.01
 minimal_ap_interval = 0.001
@@ -59,7 +60,11 @@ def ap_analysis(time, voltage):
     Returns:
         ap_number: number of APs detected
         th_v: threshold voltages
-        th_t: threshold times 
+        th_t: threshold times
+        th_v_2nd: threshold voltages from 2nd derivative
+        th_t_2nd: threshold times from 2nd derivative
+        th_v_2nd: threshold voltages from 2nd derivative
+        th_t_2nd: threshold times from 2nd derivative
         hd_start_t: half-duration start times
         hd_start_v: half-duration start voltages
         hd_end_t: half-duration end times
@@ -76,13 +81,15 @@ def ap_analysis(time, voltage):
     nyquist = 0.5 / dt
     cutoff_normalized = filter_cut_off / nyquist
     b, a = signal.butter(2, cutoff_normalized, 'low')
-    voltage = signal.filtfilt(b, a, voltage) # CAVE overwrites the trace with the filtered one
+    voltage_filt = signal.filtfilt(b, a, voltage)
 
-    # Calculate derivative using filtered trace
-    d1 = np.diff(voltage) / dt
-    d1_in_V_per_s = d1 / V_to_mV
-    
-
+    # Calculate 1st and 2nd derivatives using filtered trace
+    d1 = np.diff(voltage_filt) / dt
+    d1_filt = signal.filtfilt(b, a, d1) # CAVE overwrites the trace with the filtered one
+    d1_in_V_per_s = d1_filt / V_to_mV
+    d2 = np.diff(d1_in_V_per_s) / dt
+    d2_filt = signal.filtfilt(b, a, d2)  # CAVE overwrites the trace with the filtered one
+    d2_in_V_per_s_s = d2_filt / V_to_mV
 
     # Find threshold crossings where voltage crosses v_threshold
     threshold_idx = np.where((voltage[:-1] < v_threshold) & (voltage[1:] >= v_threshold))[0]
@@ -90,6 +97,8 @@ def ap_analysis(time, voltage):
     # Initialize results
     th_v = []
     th_t = []
+    th_v_2nd = []
+    th_t_2nd = []
     p_v = []
     p_t = []
     ahp_v = []
@@ -112,7 +121,12 @@ def ap_analysis(time, voltage):
         if len(th_idx_candidates) == 0:
             # Handle case where no threshold crossing is found
             continue  # Skip this iteration of the loop
+        # Find threshold based on dV/dt
         th_idx = start_idx + th_idx_candidates[0]
+
+        # Find threshold based on 2nd derivative
+        window_d2 = d2_in_V_per_s_s[start_idx:end_idx]
+        th_idx_2nd = start_idx + np.argmax(window_d2)
 
         # Find peak
         peak_idx = th_idx + np.argmax(voltage[th_idx:th_idx + int(maximal_ap_duration / dt)])
@@ -160,6 +174,8 @@ def ap_analysis(time, voltage):
                 relative_amplitude >= maximal_relative_amplitude_decline):
             th_v.append(voltage[th_idx])
             th_t.append(time[th_idx])
+            th_v_2nd.append(voltage[th_idx_2nd])
+            th_t_2nd.append(time[th_idx_2nd])
             p_v.append(voltage[peak_idx])
             p_t.append(time[peak_idx])
             ahp_v.append(voltage[ahp_idx])
@@ -173,7 +189,7 @@ def ap_analysis(time, voltage):
 
     ap_number = len(p_v)
 
-    return ap_number, th_v, th_t, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t
+    return ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t
 
 
 def CC_eval():
@@ -373,12 +389,13 @@ def CC_eval():
 
             di = current[idx2].mean() - current[idx1].mean()
 
-            ap_number, th_v, th_t, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+            ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
                 time, voltage)
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
             if ap_number > 0:
                 sweep_points = {
                     'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                    'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
                     'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
                     'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
                     'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
@@ -395,8 +412,14 @@ def CC_eval():
                 rheobase = di
                 rheobase_voltage = voltage
                 ap_rheo_half_duration = hd_end_t[0] - hd_start_t[0]
-                ap_rheo_threshold = th_v[0]
-                ap_rheo_amplitude = p_v[0] - th_v[0]
+                ap_rheo_threshold_1st = th_v[0]
+                ap_rheo_threshold_2nd_1st = th_v_2nd[0]
+                ap_rheo_amplitude_1st = p_v[0] - th_v[0]
+                # Calculate average AP parameters
+                ap_rheo_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
+                ap_rheo_threshold_av = sum(th_v) / len(th_v)
+                ap_rheo_threshold_2nd_av = sum(th_v_2nd) / len(th_v_2nd)
+                ap_rheo_amplitude_av = sum(p_v[i] - th_v[i] for i in range(len(th_v))) / len(th_v)
 
         # Formatting for AP rheo superposition plot
         axs[4].grid(True)
@@ -443,12 +466,13 @@ def CC_eval():
 
             di = current[idx2].mean() - current[idx1].mean()
 
-            ap_number, th_v, th_t, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+            ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
                 time, voltage)
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
             if ap_number > 0:
                 sweep_points = {
                     'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                    'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
                     'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
                     'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
                     'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
@@ -465,10 +489,16 @@ def CC_eval():
                 max_ap_number = ap_number
                 max_ap_di = di
                 max_ap_voltage = voltage
+                ap_max_threshold_1st = th_v[0]
+                ap_max_threshold_2nd_1st = th_v_2nd[0]
+                ap_max_amplitude_1st = p_v[0] - th_v[0]
                 # Calculate average AP parameters
-                ap_max_half_duration = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
-                ap_max_threshold = sum(th_v) / ap_number
-                ap_max_amplitude = sum(p_v[i] - th_v[i] for i in range(ap_number)) / ap_number
+                ap_max_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
+                ap_max_threshold_av = sum(th_v) / ap_number
+                ap_max_threshold_2nd_av = sum(th_v_2nd) / ap_number
+                ap_max_amplitude_av = sum(p_v[i] - th_v[i] for i in range(ap_number)) / ap_number
+
+
 
         # Add vertical lines and formatting for AP max superposition plot
         axs[6].grid(True)
@@ -496,12 +526,20 @@ def CC_eval():
             "Rin_fit": rin_fit,
             "Rheobase": rheobase,
             "max_ap_number": max_ap_number,
-            "ap_rheo_half_duration": ap_rheo_half_duration,
-            "ap_rheo_threshold": ap_rheo_threshold,
-            "ap_rheo_amplitude": ap_rheo_amplitude,
-            "ap_max_half_duration": ap_max_half_duration if max_ap_number > 0 else None,
-            "ap_max_threshold": ap_max_threshold if max_ap_number > 0 else None,
-            "ap_max_amplitude": ap_max_amplitude if max_ap_number > 0 else None,
+            "ap_rheo_threshold_1st": ap_rheo_threshold_1st,
+            "ap_rheo_threshold_2nd_1st": ap_rheo_threshold_2nd_1st,
+            "ap_rheo_amplitude_1st": ap_rheo_amplitude_1st,
+            "ap_rheo_half_duration_av": ap_rheo_half_duration_av,
+            "ap_rheo_threshold_av": ap_rheo_threshold_av,
+            "ap_rheo_threshold_2nd_av": ap_rheo_threshold_2nd_av,
+            "ap_rheo_amplitude_av": ap_rheo_amplitude_av,
+            "ap_max_threshold_1st": ap_max_threshold_1st,
+            "ap_max_threshold_2nd_1st": ap_max_threshold_2nd_1st,
+            "ap_max_amplitude_1st": ap_max_amplitude_1st,
+            "ap_max_half_duration_av": ap_max_half_duration_av,
+            "ap_max_threshold_av": ap_max_threshold_av,
+            "ap_max_threshold_2nd_av": ap_max_threshold_2nd_av,
+            "ap_max_amplitude_av": ap_max_amplitude_av
         })
 
 

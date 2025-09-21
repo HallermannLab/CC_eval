@@ -201,6 +201,7 @@ def replot():
             # Plot each type of point with different symbols and colors
             symbols = {
                 'threshold': ('o', 'red', 'Threshold'),
+                'threshold_2nd': ('o', 'brown', 'Threshold_2nd'),
                 'half_duration_start': ('s', 'blue', 'Half Duration Start'),
                 'half_duration_end': ('s', 'green', 'Half Duration End'),
                 'peak': ('t', 'yellow', 'Peak'),

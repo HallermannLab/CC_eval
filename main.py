@@ -15,6 +15,8 @@ from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
 #from config import analysis_points
 from collections import defaultdict
 import json
+from trace_viewer import show_three_traces
+
 
 
 # --- parameters ---
@@ -55,7 +57,7 @@ maximal_relative_amplitude_decline = 0.3
 def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
                 window_for_searching_threshold, window_for_searching_ahp,
                 minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
-                maximal_relative_amplitude_decline):
+                maximal_relative_amplitude_decline, plotYES):
 
 
     """
@@ -105,6 +107,9 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
     d2 = np.diff(d1_in_V_per_s) / dt
     d2_filt = signal.filtfilt(b, a, d2)  # CAVE overwrites the trace with the filtered one
     d2_in_V_per_s_s = d2_filt / V_to_mV
+
+    if plotYES == 1:
+        show_three_traces(time, voltage_filt, d1_in_V_per_s, d2_in_V_per_s_s)
 
     # Find threshold crossings where voltage crosses v_threshold
     threshold_idx = np.where((voltage[:-1] < v_threshold) & (voltage[1:] >= v_threshold))[0]
@@ -437,7 +442,8 @@ def CC_eval():
                 time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
                 window_for_searching_threshold, window_for_searching_ahp,
                 minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
-                maximal_relative_amplitude_decline)
+                maximal_relative_amplitude_decline,0)
+
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
             if ap_number > 0:
                 sweep_points = {
@@ -513,11 +519,22 @@ def CC_eval():
 
             di = current[idx2].mean() - current[idx1].mean()
 
-            ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
-                time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
-                window_for_searching_threshold, window_for_searching_ahp,
-                minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
-                maximal_relative_amplitude_decline)
+            if sweep_id == 10:
+                ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+                    time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+                    window_for_searching_threshold, window_for_searching_ahp,
+                    minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                    maximal_relative_amplitude_decline, 1)
+            else:
+                ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+                    time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+                    window_for_searching_threshold, window_for_searching_ahp,
+                    minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                    maximal_relative_amplitude_decline, 0)
+
+
+
+
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
             if ap_number > 0:
                 sweep_points = {

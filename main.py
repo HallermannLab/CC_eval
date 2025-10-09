@@ -45,16 +45,16 @@ window2_ap_max_end = 0.39
 v_threshold = -20
 dvdt_threshold = 10
 filter_cut_off = 1500 #Hz
+fraction_of_max_of_2nd_derivative = 0.3
 window_for_searching_threshold = 0.002
 window_for_searching_ahp = 0.01
 minimal_ap_interval = 0.001
 minimal_ap_duration = 0.0005
 maximal_ap_duration = 0.005
-maximal_relative_amplitude_decline = 0.3
 """
 
 
-def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
                 window_for_searching_threshold, window_for_searching_ahp,
                 minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
                 maximal_relative_amplitude_decline, plotYES):
@@ -144,11 +144,20 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
         # Find threshold based on dV/dt
         th_idx = start_idx + th_idx_candidates[0]
 
-        # Find threshold based on 2nd derivative
+        # Find threshold based on 2nd derivative crossing 30% of max
         window_d2 = d2_in_V_per_s_s[start_idx:end_idx]
-        th_idx_2nd = start_idx + np.argmax(window_d2)
+        d2_max = np.max(window_d2)
+        d2_threshold = fraction_of_max_of_2nd_derivative * d2_max
 
-        # Find peak
+        # Find first crossing of 30% threshold
+        crossing_indices = np.where(window_d2 >= d2_threshold)[0]
+        if len(crossing_indices) > 0:
+            th_idx_2nd = start_idx + crossing_indices[0]
+        else:
+            print(
+                f"Warning: Could not find 2nd derivative threshold crossing in {bundle.file_name}, series {series_id}, sweep {idx}. Using maximum instead.")
+            th_idx_2nd = start_idx + np.argmax(window_d2)  # Fallback to max if no crossing found
+
         peak_idx = th_idx + np.argmax(voltage[th_idx:th_idx + int(maximal_ap_duration / dt)])
 
         # Find AHP
@@ -281,6 +290,7 @@ def CC_eval():
         v_threshold = row['v_threshold']
         dvdt_threshold = row['dvdt_threshold']
         filter_cut_off = row['filter_cut_off']
+        fraction_of_max_of_2nd_derivative = row['fraction_of_max_of_2nd_derivative']
         window_for_searching_threshold = row['window_for_searching_threshold']
         window_for_searching_ahp = row['window_for_searching_ahp']
         minimal_ap_interval = row['minimal_ap_interval']
@@ -439,10 +449,10 @@ def CC_eval():
             di = current[idx2].mean() - current[idx1].mean()
 
             ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
-                time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+                time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
                 window_for_searching_threshold, window_for_searching_ahp,
                 minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
-                maximal_relative_amplitude_decline,0)
+                maximal_relative_amplitude_decline, 0)
 
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
             if ap_number > 0:
@@ -521,13 +531,13 @@ def CC_eval():
 
             if sweep_id == 10:
                 ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
-                    time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+                    time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
                     maximal_relative_amplitude_decline, 1)
             else:
                 ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
-                    time, voltage, v_threshold, dvdt_threshold, filter_cut_off,
+                    time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
                     maximal_relative_amplitude_decline, 0)

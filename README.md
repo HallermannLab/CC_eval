@@ -46,7 +46,6 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
    - The etermined action potential parameters can be visualized for each action potential in an interactive browser interface.
    - The browser can also be launched separately by running `browser.py` directly (useful for reviewing results without re-running the analysis).
 
-
 ## Output
 
 The script generates:
@@ -114,3 +113,4 @@ The `individual-parameters` branch allows **cell-specific parameter customizatio
 - `window2_ap_rheo_start/end` 
 - `window1_ap_max_start/end`: Time windows for maximum AP analysis
 - `window2_ap_max_start/end`
+

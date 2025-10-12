@@ -11,7 +11,7 @@ import heka_reader
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import git_save as myGit
-from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
+from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE, EXTERNAL_DATA_FOLDER
 #from config import analysis_points
 from collections import defaultdict
 import json
@@ -22,6 +22,7 @@ from trace_viewer import show_three_traces
 # --- parameters ---
 A_to_pA = 1e12
 V_to_mV = 1e3
+which_sweep_to_plot_derivatives = -1    # -1 means no plotting. Select the sweep you want to plot. Can be used for debugging
 
 """
 These values are now imported from the metadata file (metadata_individual.xlsx)
@@ -267,10 +268,13 @@ def CC_eval():
         print(f"Processing cell {cell_count + 1}: {row['file_name']}")
 
         file_name = row['file_name']
-        rmp_series = row['rmp_series']
-        rin_series = row['rin_series']
-        ap_rheo_series = row['ap_rheo_series']
-        ap_max_series = row['ap_max_series']
+        rmp_series = row['rmp_series'] - 1
+        rin_series = row['rin_series'] - 1
+        ap_rheo_series = row['ap_rheo_series'] - 1
+        ap_max_series = row['ap_max_series'] - 1
+
+        rin_series_from_current = row['rin_series_from_current'] 
+        rin_series_to_current = row['rin_series_to_current'] 
 
         window1_rin_start = row['window1_rin_start']
         window1_rin_end = row['window1_rin_end']
@@ -298,7 +302,7 @@ def CC_eval():
         maximal_ap_duration = row['maximal_ap_duration']
         maximal_relative_amplitude_decline = row['maximal_relative_amplitude_decline']
 
-        dat_path = os.path.join(IMPORT_FOLDER, file_name)
+        dat_path = os.path.join(EXTERNAL_DATA_FOLDER, file_name)
         try:
             bundle = heka_reader.Bundle(dat_path)
         except Exception as e:
@@ -306,7 +310,7 @@ def CC_eval():
             continue
 
         group_id = 0
-        fig, axs = plt.subplots(4, 2, figsize=(8, 10))
+        fig, axs = plt.subplots(5, 2, figsize=(8, 12))
         axs = axs.flatten()
 
         rmp_mean = None
@@ -371,18 +375,22 @@ def CC_eval():
             axs[3].set_ylabel("Voltage (mV)")
             axs[3].set_xlabel("Time (s)")
 
+            # Determine sweep range
             for sweep_id in range(n_sweeps):
                 voltage = V_to_mV * bundle.data[group_id, series_id, sweep_id, 0]
                 current = A_to_pA * bundle.data[group_id, series_id, sweep_id, 1]
+
+                dv = voltage[idx2].mean() - voltage[idx1].mean()
+                di = current[idx2].mean() - current[idx1].mean()
+
+                if not (rin_series_from_current <= di <= rin_series_to_current):
+                    continue
 
                 # Plot current trace
                 axs[2].plot(time, current, alpha=0.5)
 
                 # Plot voltage trace
                 axs[3].plot(time, voltage, alpha=0.5)
-
-                dv = voltage[idx2].mean() - voltage[idx1].mean()
-                di = current[idx2].mean() - current[idx1].mean()
 
                 delta_vs.append(dv)
                 delta_is.append(di)
@@ -398,14 +406,14 @@ def CC_eval():
             delta_vs = np.array(delta_vs)
             delta_is = np.array(delta_is)
 
-            # Linear fit: ΔV = R * ΔI + offset
-            slope, intercept, r_value, p_value, std_err = linregress(delta_is, delta_vs)
+            # Linear fit: ΔV = R * ΔI (forced through zero)
+            slope = np.sum(delta_is * delta_vs) / np.sum(delta_is * delta_is)  # Least squares through origin
             rin_fit = 1000 * slope  # input resistance in MOhm (1e6 = 1000 * milli / pico)
 
             # Plot I-V relationship
             axs[1].scatter(delta_is, delta_vs, label="data")
-            axs[1].plot(delta_is, slope * delta_is + intercept, color="red",
-                        label=f"fit (R={rin_fit:.1f} MΩ)")
+            axs[1].plot(delta_is, slope * delta_is, color="red",
+            label=f"fit (R={rin_fit:.1f} MΩ)")
             axs[1].set_xlabel("ΔI (pA)")
             axs[1].set_ylabel("ΔV (mV)")
             axs[1].set_title("Input Resistance")
@@ -519,6 +527,8 @@ def CC_eval():
         max_ap_number = 0
         max_ap_di = None
         max_ap_voltage = None
+        ap_numbers = []
+        currents = []
 
         for sweep_id in range(n_sweeps):
             voltage = V_to_mV * bundle.data[group_id, series_id, sweep_id, 0]
@@ -528,8 +538,9 @@ def CC_eval():
             axs[6].plot(time, voltage, alpha=0.5, label=f'Sweep {sweep_id + 1}')
 
             di = current[idx2].mean() - current[idx1].mean()
+            currents.append(di)
 
-            if sweep_id == 10:
+            if sweep_id == which_sweep_to_plot_derivatives - 1:
                 ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
                     time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
@@ -542,8 +553,7 @@ def CC_eval():
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
                     maximal_relative_amplitude_decline, 0)
 
-
-
+            ap_numbers.append(ap_number)
 
             #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
             if ap_number > 0:
@@ -589,10 +599,14 @@ def CC_eval():
             axs[7].legend()
         axs[7].grid(True)
 
-        # Turn off unused subplots
-        # for i in range(4, 8):
-        #    axs[i].set_visible(False)
- 
+
+        # Plot number of APs vs current
+        axs[8].set_title("AP Frequency vs Current")
+        axs[8].set_ylabel("Number of APs")
+        axs[8].set_xlabel("Current (pA)")
+        axs[8].plot(currents, ap_numbers, 'o-')
+        axs[8].grid(True)
+
         # ==========================================================================================
         # --- Store results ---
         results.append({
@@ -616,7 +630,9 @@ def CC_eval():
             "ap_max_half_duration_av": ap_max_half_duration_av,
             "ap_max_threshold_av": ap_max_threshold_av,
             "ap_max_threshold_2nd_av": ap_max_threshold_2nd_av,
-            "ap_max_amplitude_av": ap_max_amplitude_av
+            "ap_max_amplitude_av": ap_max_amplitude_av,
+            "currents": currents,
+            "ap_numbers": ap_numbers
         })
 
 
@@ -633,6 +649,37 @@ def CC_eval():
     results_df = pd.DataFrame(results)
     excel_output_path = os.path.join(output_folder, "results.xlsx")
     results_df.to_excel(excel_output_path, index=False)
+
+    # Create DataFrames for currents and AP numbers
+    currents_data = []
+    ap_numbers_data = []
+
+    # Process each cell's data
+    for cell_count, row in metadata_df.iterrows():
+        file_name = row['file_name']
+        series_id = int(row['ap_max_series']) - 1
+
+        # Get the stored currents and ap_numbers for this cell
+        currents_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+        ap_numbers_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+
+        for i, (current, ap_num) in enumerate(zip(results[cell_count]['currents'], results[cell_count]['ap_numbers']),
+                                              1):
+            currents_row[f'di_{i}'] = current
+            ap_numbers_row[f'ap_number_{i}'] = ap_num
+
+        currents_data.append(currents_row)
+        ap_numbers_data.append(ap_numbers_row)
+
+    # Create and save the additional Excel files
+    currents_df = pd.DataFrame(currents_data)
+    ap_numbers_df = pd.DataFrame(ap_numbers_data)
+
+    currents_excel_path = os.path.join(output_folder, "ap_max_currents.xlsx")
+    ap_numbers_excel_path = os.path.join(output_folder, "ap_max_ap_numbers.xlsx")
+
+    currents_df.to_excel(currents_excel_path, index=False)
+    ap_numbers_df.to_excel(ap_numbers_excel_path, index=False)
 
     # Save analysis points to JSON file
     analysis_points_path = os.path.join(IMPORT_FOLDER, "analysis_points.json")

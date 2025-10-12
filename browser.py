@@ -4,9 +4,7 @@ import numpy as np
 import heka_reader
 from pyqtgraph.Qt import QtWidgets, QtCore
 import pandas as pd
-# Import the paths from main
-from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE
-#from config import analysis_points
+from config import IMPORT_FOLDER, METADATA_FILE, EXTERNAL_DATA_FOLDER
 import json
 
 
@@ -87,7 +85,7 @@ def load_clicked():
 
         if selected_action:
             selected_file = selected_action.text()
-            dat_path = os.path.join(IMPORT_FOLDER, selected_file)
+            dat_path = os.path.join(EXTERNAL_DATA_FOLDER, selected_file)
             if os.path.exists(dat_path):
                 load(dat_path)
             else:

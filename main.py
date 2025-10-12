@@ -150,13 +150,17 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off, frac
         d2_max = np.max(window_d2)
         d2_threshold = fraction_of_max_of_2nd_derivative * d2_max
 
-        # Find first crossing of 30% threshold
-        crossing_indices = np.where(window_d2 >= d2_threshold)[0]
+        # Find first crossing of 30% threshold - but ensure it's actually a crossing
+        # Look for points that cross the threshold from below
+        crossing_indices = []
+        for i in range(1, len(window_d2)):
+            if window_d2[i-1] < d2_threshold and window_d2[i] >= d2_threshold:
+                crossing_indices.append(i)
+        
         if len(crossing_indices) > 0:
             th_idx_2nd = start_idx + crossing_indices[0]
         else:
-            print(
-                f"Warning: Could not find 2nd derivative threshold crossing in {bundle.file_name}, series {series_id}, sweep {idx}. Using maximum instead.")
+            print(f"Warning: Could not find 2nd derivative threshold crossing in. Using maximum instead.")
             th_idx_2nd = start_idx + np.argmax(window_d2)  # Fallback to max if no crossing found
 
         peak_idx = th_idx + np.argmax(voltage[th_idx:th_idx + int(maximal_ap_duration / dt)])

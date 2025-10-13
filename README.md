@@ -12,6 +12,7 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
   - AP amplitude calculation
   - AP half-width measurement
   - Maximum firing rate analysis
+- Action Potential Broadening Analysis: Tracks changes in AP half-duration across multiple sweeps to detect activity-dependent broadening
 - Individual cell parameter customization for optimized analysis
 - Automated batch processing of multiple recordings
 - Generation of detailed visualization plots with optional derivative plotting
@@ -33,11 +34,12 @@ The tool supports external data folders for flexible file organization. Configur
 Create a metadata Excel file (`metadata.xlsx`) in your import folder with all of the following columns. Each cell requires individual parameter values for optimal analysis:
 
 #### Example Metadata File Structure (see provided `example metadata.xlsx`):
-| file_name | rmp_series | rin_series | ap_rheo_series | ap_max_series | rin_series_from_current | rin_series_to_current | window1_rin_start | window1_rin_end | window2_rin_start | window2_rin_end | window1_ap_rheo_start | window1_ap_rheo_end | window2_ap_rheo_start | window2_ap_rheo_end | window1_ap_max_start | window1_ap_max_end | window2_ap_max_start | window2_ap_max_end | v_threshold | dvdt_threshold | filter_cut_off | fraction_of_max_of_2nd_derivative | window_for_searching_threshold | window_for_searching_ahp | minimal_ap_interval | minimal_ap_duration | maximal_ap_duration | maximal_relative_amplitude_decline |
-|-----------|------------|------------|----------------|---------------|------------------------|----------------------|-------------------|-----------------|-------------------|------------------|----------------------|---------------------|----------------------|---------------------|----------------------|--------------------|--------------------|--------------------|-----------|--------------|--------------|---------------------------------|------------------------------|-------------------------|--------------------|--------------------|--------------------|---------------------------------|
-| cell_001.dat | 1 | 2 | 3 | 4 | -50 | 50 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | -25 | 15 | 1500 | 0.3 | 0.002 | 0.01 | 0.001 | 0.0005 | 0.005 | 0.8 |
-| cell_002.dat | 1 | 2 | 3 | 4 | -50 | 50 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | -30 | 12 | 2000 | 0.3 | 0.002 | 0.01 | 0.001 | 0.0007 | 0.005 | 0.8 |
-| cell_003.dat | 1 | 2 | 3 | 4 | -50 | 50 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | -20 | 18 | 1200 | 0.3 | 0.002 | 0.01 | 0.001 | 0.0004 | 0.005 | 0.8 |
+| file_name | rmp_series | rin_series | ap_rheo_series | ap_max_series | ap_broadening_series | rin_series_from_current | rin_series_to_current | window1_rin_start | window1_rin_end | window2_rin_start | window2_rin_end | window1_ap_rheo_start | window1_ap_rheo_end | window2_ap_rheo_start | window2_ap_rheo_end | window1_ap_max_start | window1_ap_max_end | window2_ap_max_start | window2_ap_max_end | v_threshold | dvdt_threshold | filter_cut_off | fraction_of_max_of_2nd_derivative | window_for_searching_threshold | window_for_searching_ahp | minimal_ap_interval | minimal_ap_duration | maximal_ap_duration | maximal_relative_amplitude_decline |
+|-----------|------------|------------|----------------|---------------|---------------------|------------------------|----------------------|-------------------|-----------------|-------------------|------------------|----------------------|---------------------|----------------------|---------------------|----------------------|--------------------|--------------------|--------------------|-----------|--------------|--------------|---------------------------------|------------------------------|-------------------------|--------------------|--------------------|--------------------|---------------------------------|
+| cell_001.dat | 1 | 2 | 3 | 4 | 5 | -50 | 50 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | -25 | 15 | 1500 | 0.3 | 0.002 | 0.01 | 0.001 | 0.0005 | 0.005 | 0.8 |
+| cell_002.dat | 1 | 2 | 3 | 4 | 5 | -50 | 50 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | -30 | 12 | 2000 | 0.3 | 0.002 | 0.01 | 0.001 | 0.0007 | 0.005 | 0.8 |
+| cell_003.dat | 1 | 2 | 3 | 4 | 5 | -50 | 50 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | -20 | 18 | 1200 | 0.3 | 0.002 | 0.01 | 0.001 | 0.0004 | 0.005 | 0.8 |
+
 
 #### Columns Explained:
 
@@ -47,6 +49,7 @@ Create a metadata Excel file (`metadata.xlsx`) in your import folder with all of
 - `rin_series`: Series number for input resistance analysis
 - `ap_rheo_series`: Series number for rheobase analysis
 - `ap_max_series`: Series number for maximum AP analysis
+- `ap_broadening_series`: Series number for AP broadening analysis (tracks half-duration of first AP in each sweep)
 
 You can skip analysis for a given series by leaving the cell empty in the metadata excel file. 
 
@@ -114,7 +117,7 @@ The analysis generates:
 - **Timestamped output folder** containing:
   - Individual PDF files with analysis plots for each recording
   - Excel file (`results.xlsx`) with compiled analysis results
-  - Additional Excel files (`ap_max_currents.xlsx`, `ap_max_ap_numbers.xlsx`) with detailed current-response data
+  - Additional Excel files (`ap_max_currents.xlsx`, `ap_max_ap_numbers.xlsx`, `ap_broadening.xlsx`) with current, AP number and AP duration data
   - Copy of `analysis_points.json` for documentation
 
 - **`analysis_points.json`** in the input folder:

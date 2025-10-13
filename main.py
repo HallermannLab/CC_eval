@@ -765,7 +765,7 @@ def CC_eval():
         # Only process if ap_max_series is available and valid
         if not is_valid_series(row['ap_max_series']):
             # Skip this cell if ap_max_series is not valid
-            print(f"Skipping currents/ap_numbers export for {file_name} - invalid ap_max_series")
+            #print(f"Skipping currents/ap_numbers export for {file_name} - invalid ap_max_series")
             continue
             
         series_id = int(float(row['ap_max_series'])) - 1

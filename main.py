@@ -288,12 +288,14 @@ def CC_eval():
         rin_series_available = is_valid_series(row['rin_series'])
         ap_rheo_series_available = is_valid_series(row['ap_rheo_series'])
         ap_max_series_available = is_valid_series(row['ap_max_series'])
-        
+        ap_broadening_series_available = is_valid_series(row['ap_broadening_series'])
+
         # Only convert to int and subtract 1 if value is available
         rmp_series = int(float(row['rmp_series'])) - 1 if rmp_series_available else None
         rin_series = int(float(row['rin_series'])) - 1 if rin_series_available else None
         ap_rheo_series = int(float(row['ap_rheo_series'])) - 1 if ap_rheo_series_available else None
         ap_max_series = int(float(row['ap_max_series'])) - 1 if ap_max_series_available else None
+        ap_broadening_series = int(float(row['ap_broadening_series'])) - 1 if ap_broadening_series_available else None
 
         # Debug print to see what's happening
         #print(f"Series availability: RMP={rmp_series_available}, Rin={rin_series_available}, AP_rheo={ap_rheo_series_available}, AP_max={ap_max_series_available}")
@@ -360,8 +362,11 @@ def CC_eval():
         ap_max_threshold_av = None
         ap_max_threshold_2nd_av = None
         ap_max_amplitude_av = None
+        ap_max_instantaneous_freq_1_2 = None
+        ap_max_average_freq_all = None
         currents = []
         ap_numbers = []
+        ap_broadening = []  # New variable for half durations
 
         # ==========================================================================================
         # --- RMP ---
@@ -395,7 +400,7 @@ def CC_eval():
             axs[0].set_ylabel("Voltage (mV)")
             axs[0].set_xlabel("time (s)")
             axs[0].grid(True)
-            print(f"Skipping RMP analysis")
+            print(f"        Skipping RMP analysis")
 
         # ==========================================================================================
         # --- Rin ---
@@ -489,7 +494,7 @@ def CC_eval():
             axs[3].set_ylabel("Voltage (mV)")
             axs[3].set_xlabel("Time (s)")
             axs[3].grid(True)
-            print(f"Skipping Rin analysis")
+            print(f"        Skipping Rin analysis")
 
         # ==========================================================================================
         # --- AP rheo ---
@@ -581,7 +586,7 @@ def CC_eval():
             axs[5].set_ylabel("Voltage (mV)")
             axs[5].set_xlabel("Time (s)")
             axs[5].grid(True)
-            print(f"Skipping AP rheo analysis")
+            print(f"        Skipping AP rheo analysis")
 
         # ==========================================================================================
         # --- AP max ---
@@ -667,6 +672,21 @@ def CC_eval():
                     ap_max_threshold_2nd_av = sum(th_v_2nd) / ap_number
                     ap_max_amplitude_av = sum(p_v[i] - th_v[i] for i in range(ap_number)) / ap_number
 
+                    # Calculate AP frequencies
+                    if ap_number >= 2:
+                        # Instantaneous frequency of first two APs (Hz)
+                        ap_max_instantaneous_freq_1_2 = 1.0 / (p_t[1] - p_t[0])
+                    else:
+                        ap_max_instantaneous_freq_1_2 = None
+
+                    if ap_number >= 2:
+                        # Average frequency of all APs (Hz)
+                        total_time = p_t[-1] - p_t[0]  # Time from first to last AP
+                        ap_max_average_freq_all = (ap_number - 1) / total_time  # Number of intervals / total time
+                    else:
+                        ap_max_average_freq_all = None
+
+
             axs[6].grid(True)
 
             # Setup max AP trace plot
@@ -701,10 +721,75 @@ def CC_eval():
             axs[8].set_ylabel("Number of APs")
             axs[8].set_xlabel("Current (pA)")
             axs[8].grid(True)
-            print(f"Skipping AP max analysis")
+            print(f"        Skipping AP max analysis")
+
+        # ==========================================================================================
+        # --- AP broadening ---
+        # ==========================================================================================
+
+        if ap_broadening_series_available:
+            series_id = ap_broadening_series
+            n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
+
+            # get time base
+            current = bundle.data[group_id, series_id, 0, 1]
+            n_points = len(current)
+            sampling_interval = bundle.pul[group_id][series_id][0][0].XInterval
+            time = np.arange(n_points) * sampling_interval
+
+            for sweep_id in range(n_sweeps):
+                voltage = V_to_mV * bundle.data[group_id, series_id, sweep_id, 0]
+                current = A_to_pA * bundle.data[group_id, series_id, sweep_id, 1]
+
+                ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+                    time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
+                    window_for_searching_threshold, window_for_searching_ahp,
+                    minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                    maximal_relative_amplitude_decline, 0)
+
+                # Store half duration of first AP (or None if no AP detected)
+                if ap_number > 0:
+                    first_ap_half_duration = hd_end_t[0] - hd_start_t[0]
+                    ap_broadening.append(float(first_ap_half_duration))
+
+                    # Store analysis points
+                    sweep_points = {
+                        'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                        'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
+                        'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
+                        'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
+                        'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
+                        'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
+                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
+                    }
+                    analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
+                else:
+                    ap_broadening.append(None)
+
+            # Plot half duration of first AP vs sweep number in axs[9]
+            sweep_numbers = list(range(1, len(ap_broadening) + 1))
+            valid_indices = [i for i, hd in enumerate(ap_broadening) if hd is not None]
+            valid_sweep_numbers = [sweep_numbers[i] for i in valid_indices]
+            valid_half_durations = [ap_broadening[i] for i in valid_indices]
+
+            axs[9].set_title("AP Broadening (1st AP Half Duration)")
+            axs[9].set_ylabel("Half Duration (s)")
+            axs[9].set_xlabel("Sweep Number")
+            if valid_half_durations:
+                axs[9].plot(valid_sweep_numbers, valid_half_durations, 'o-')
+            axs[9].grid(True)
+
+        else:
+            # Skip AP broadening analysis - create empty plot
+            axs[9].set_title("SKIPPED")
+            axs[9].set_ylabel("Half Duration (s)")
+            axs[9].set_xlabel("Sweep Number")
+            axs[9].grid(True)
+            print(f"        Skipping AP broadening analysis")
 
         # ==========================================================================================
         # --- Store results ---
+        # ==========================================================================================
         results.append({
             "cell_count": cell_count + 1,
             "file_name": file_name,
@@ -727,8 +812,11 @@ def CC_eval():
             "ap_max_threshold_av": ap_max_threshold_av,
             "ap_max_threshold_2nd_av": ap_max_threshold_2nd_av,
             "ap_max_amplitude_av": ap_max_amplitude_av,
+            "ap_max_instantaneous_freq_1_2": ap_max_instantaneous_freq_1_2,
+            "ap_max_average_freq_all": ap_max_average_freq_all,
             "currents": currents,
-            "ap_numbers": ap_numbers
+            "ap_numbers": ap_numbers,
+            "ap_broadening": ap_broadening  # Add to results
         })
 
         # --- Save PDF ---
@@ -751,7 +839,7 @@ def CC_eval():
     # Process each cell's data
     for cell_count, row in metadata_df.iterrows():
         file_name = row['file_name']
-        
+
         # Check if ap_max_series is valid before converting
         def is_valid_series(value):
             if pd.isna(value):
@@ -761,36 +849,61 @@ def CC_eval():
                 return int_val > 0
             except (ValueError, TypeError):
                 return False
-        
+
         # Only process if ap_max_series is available and valid
         if not is_valid_series(row['ap_max_series']):
             # Skip this cell if ap_max_series is not valid
-            #print(f"Skipping currents/ap_numbers export for {file_name} - invalid ap_max_series")
+            # print(f"Skipping currents/ap_numbers export for {file_name} - invalid ap_max_series")
             continue
-            
+
         series_id = int(float(row['ap_max_series'])) - 1
 
         # Get the stored currents and ap_numbers for this cell
         currents_row = {'cell_count': cell_count + 1, 'file_name': file_name}
         ap_numbers_row = {'cell_count': cell_count + 1, 'file_name': file_name}
 
-        for i, (current, ap_num) in enumerate(zip(results[cell_count]['currents'], results[cell_count]['ap_numbers']),
-                                              1):
-            currents_row[f'di_{i}'] = current
-            ap_numbers_row[f'ap_number_{i}'] = ap_num
+        for i, (current, ap_num) in enumerate(zip(results[cell_count]['currents'], results[cell_count]['ap_numbers']),1):
+            currents_row[f'sweep_{i}'] = current
+            ap_numbers_row[f'sweep_{i}'] = ap_num
 
         currents_data.append(currents_row)
         ap_numbers_data.append(ap_numbers_row)
 
+    # Create DataFrames for AP broadening
+    ap_broadening_data = []  # New DataFrame for broadening data
+
+    # Process each cell's data
+    for cell_count, row in metadata_df.iterrows():
+        file_name = row['file_name']
+
+        # Only process if ap_broadening_series is available and valid
+        if not is_valid_series(row['ap_broadening_series']):
+            # Skip this cell if ap_broadening_series is not valid
+            continue
+
+        series_id = int(float(row['ap_broadening_series'])) - 1
+
+        # Get the stored currents and ap_numbers for this cell
+        ap_broadening_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+
+        for i, ap_broaden in enumerate(results[cell_count]['ap_broadening'], 1):
+            ap_broadening_row[f'sweep_{i}'] = ap_broaden
+
+        ap_broadening_data.append(ap_broadening_row)
+
+
     # Create and save the additional Excel files
     currents_df = pd.DataFrame(currents_data)
     ap_numbers_df = pd.DataFrame(ap_numbers_data)
+    ap_broadening_df = pd.DataFrame(ap_broadening_data)
 
     currents_excel_path = os.path.join(output_folder, "ap_max_currents.xlsx")
     ap_numbers_excel_path = os.path.join(output_folder, "ap_max_ap_numbers.xlsx")
+    ap_broadening_excel_path = os.path.join(output_folder, "ap_broadening.xlsx")
 
     currents_df.to_excel(currents_excel_path, index=False)
     ap_numbers_df.to_excel(ap_numbers_excel_path, index=False)
+    ap_broadening_df.to_excel(ap_broadening_excel_path, index=False)
 
     # Save analysis points to JSON file
     analysis_points_path = os.path.join(IMPORT_FOLDER, "analysis_points.json")

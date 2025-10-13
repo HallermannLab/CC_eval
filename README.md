@@ -115,7 +115,8 @@ The tool includes visualization options for derivatives to help with parameter o
 The analysis generates:
 
 - **Timestamped output folder** containing:
-  - Individual PDF files with analysis plots for each recording
+  - Individual PDF files with analysis plots for each recording ([see example here PDF](003_Rinako_20250709_003.pdf)
+)
   - Excel file (`results.xlsx`) with compiled analysis results
   - Additional Excel files (`ap_max_currents.xlsx`, `ap_max_ap_numbers.xlsx`, `ap_broadening.xlsx`) with current, AP number and AP duration data
   - Copy of `analysis_points.json` for documentation

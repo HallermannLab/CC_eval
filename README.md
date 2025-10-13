@@ -48,6 +48,8 @@ Create a metadata Excel file (`metadata.xlsx`) in your import folder with all of
 - `ap_rheo_series`: Series number for rheobase analysis
 - `ap_max_series`: Series number for maximum AP analysis
 
+You can skip analysis for a given series by leaving the cell empty in the metadata excel file. 
+
 **Input Resistance Analysis:**
 - `rin_series_from_current`: Lower current bound for Rin analysis (pA)
 - `rin_series_to_current`: Upper current bound for Rin analysis (pA)

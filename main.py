@@ -272,11 +272,34 @@ def CC_eval():
         print(f"Processing cell {cell_count + 1}: {row['file_name']}")
 
         file_name = row['file_name']
-        rmp_series = row['rmp_series'] - 1
-        rin_series = row['rin_series'] - 1
-        ap_rheo_series = row['ap_rheo_series'] - 1
-        ap_max_series = row['ap_max_series'] - 1
+        
+        # Check if series values are provided and valid (not NaN, not empty, and numeric)
+        def is_valid_series(value):
+            if pd.isna(value):
+                return False
+            try:
+                # Try to convert to int - if it fails, it's not a valid series number
+                int_val = int(float(value))  # float() first in case it's a string like "1.0"
+                return int_val > 0  # Series numbers should be positive
+            except (ValueError, TypeError):
+                return False
+        
+        rmp_series_available = is_valid_series(row['rmp_series'])
+        rin_series_available = is_valid_series(row['rin_series'])
+        ap_rheo_series_available = is_valid_series(row['ap_rheo_series'])
+        ap_max_series_available = is_valid_series(row['ap_max_series'])
+        
+        # Only convert to int and subtract 1 if value is available
+        rmp_series = int(float(row['rmp_series'])) - 1 if rmp_series_available else None
+        rin_series = int(float(row['rin_series'])) - 1 if rin_series_available else None
+        ap_rheo_series = int(float(row['ap_rheo_series'])) - 1 if ap_rheo_series_available else None
+        ap_max_series = int(float(row['ap_max_series'])) - 1 if ap_max_series_available else None
 
+        # Debug print to see what's happening
+        #print(f"Series availability: RMP={rmp_series_available}, Rin={rin_series_available}, AP_rheo={ap_rheo_series_available}, AP_max={ap_max_series_available}")
+        #print(f"Raw values: RMP={row['rmp_series']}, Rin={row['rin_series']}, AP_rheo={row['ap_rheo_series']}, AP_max={row['ap_max_series']}")
+
+        # ... existing parameter loading code ...
         rin_series_from_current = row['rin_series_from_current'] 
         rin_series_to_current = row['rin_series_to_current'] 
 
@@ -317,16 +340,36 @@ def CC_eval():
         fig, axs = plt.subplots(5, 2, figsize=(8, 12))
         axs = axs.flatten()
 
+        # Initialize all result variables to None (will appear as blank in Excel)
         rmp_mean = None
         rmp_min = None
         rin_fit = None
+        rheobase = None
+        max_ap_number = None
+        ap_rheo_threshold_1st = None
+        ap_rheo_threshold_2nd_1st = None
+        ap_rheo_amplitude_1st = None
+        ap_rheo_half_duration_av = None
+        ap_rheo_threshold_av = None
+        ap_rheo_threshold_2nd_av = None
+        ap_rheo_amplitude_av = None
+        ap_max_threshold_1st = None
+        ap_max_threshold_2nd_1st = None
+        ap_max_amplitude_1st = None
+        ap_max_half_duration_av = None
+        ap_max_threshold_av = None
+        ap_max_threshold_2nd_av = None
+        ap_max_amplitude_av = None
+        currents = []
+        ap_numbers = []
 
         # ==========================================================================================
         # --- RMP ---
         # ==========================================================================================
-        try:
-            series_id = int(rmp_series)
 
+        if rmp_series_available:
+            series_id = rmp_series
+            
             n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
             voltage_trace = V_to_mV * bundle.data[group_id, series_id, 0, 0]
 
@@ -346,20 +389,27 @@ def CC_eval():
 
             if n_sweeps != 1:
                 print(f"Warning: RMP series in {file_name} has {n_sweeps} sweeps. Only number 1 was used.")
-        except Exception as e:
-            print(f"RMP error in {file_name}: {e}")
+        else:
+            # Skip RMP analysis - create empty plot
+            axs[0].set_title("SKIPPED")
+            axs[0].set_ylabel("Voltage (mV)")
+            axs[0].set_xlabel("time (s)")
+            axs[0].grid(True)
+            print(f"Skipping RMP analysis")
 
         # ==========================================================================================
         # --- Rin ---
         # ==========================================================================================
-        try:
-            series_id = int(rin_series)
+        
+        if rin_series_available:
+            series_id = rin_series
             n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
 
             delta_vs = []
             delta_is = []
 
-            #get time base
+            # ... existing Rin analysis code ...
+            # get time base
             current = bundle.data[group_id, series_id, 0, 1]
             n_points = len(current)
             sampling_interval = bundle.pul[group_id][series_id][0][0].XInterval
@@ -417,199 +467,241 @@ def CC_eval():
             # Plot I-V relationship
             axs[1].scatter(delta_is, delta_vs, label="data")
             axs[1].plot(delta_is, slope * delta_is, color="red",
-            label=f"fit (R={rin_fit:.1f} MΩ)")
+                        label=f"fit (R={rin_fit:.1f} MΩ)")
             axs[1].set_xlabel("ΔI (pA)")
             axs[1].set_ylabel("ΔV (mV)")
             axs[1].set_title("Input Resistance")
             axs[1].legend()
             axs[1].grid(True)
-
-        except Exception as e:
-            print(f"Rin error in {file_name}: {e}")
+        else:
+            # Skip Rin analysis - create empty plots
+            axs[1].set_title("SKIPPED")
+            axs[1].set_xlabel("ΔI (pA)")
+            axs[1].set_ylabel("ΔV (mV)")
+            axs[1].grid(True)
+            
+            axs[2].set_title("SKIPPED")
+            axs[2].set_ylabel("Current (pA)")
+            axs[2].set_xlabel("Time (s)")
+            axs[2].grid(True)
+            
+            axs[3].set_title("SKIPPED")
+            axs[3].set_ylabel("Voltage (mV)")
+            axs[3].set_xlabel("Time (s)")
+            axs[3].grid(True)
+            print(f"Skipping Rin analysis")
 
         # ==========================================================================================
         # --- AP rheo ---
         # ==========================================================================================
-        series_id = int(ap_rheo_series)
-        n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
+        
+        if ap_rheo_series_available:
+            series_id = ap_rheo_series
+            n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
 
-        # get time base
-        current = bundle.data[group_id, series_id, 0, 1]
-        n_points = len(current)
-        sampling_interval = bundle.pul[group_id][series_id][0][0].XInterval
-        time = np.arange(n_points) * sampling_interval
+            # ... existing AP rheo analysis code ...
+            # get time base
+            current = bundle.data[group_id, series_id, 0, 1]
+            n_points = len(current)
+            sampling_interval = bundle.pul[group_id][series_id][0][0].XInterval
+            time = np.arange(n_points) * sampling_interval
 
-        # Convert windows to indices
-        idx1 = (time >= window1_ap_rheo_start) & (time <= window1_ap_rheo_end)
-        idx2 = (time >= window2_ap_rheo_start) & (time <= window2_ap_rheo_end)
+            # Convert windows to indices
+            idx1 = (time >= window1_ap_rheo_start) & (time <= window1_ap_rheo_end)
+            idx2 = (time >= window2_ap_rheo_start) & (time <= window2_ap_rheo_end)
 
-        # Plot superposition of all voltage traces
-        axs[4].set_title("AP rheo Voltage Traces Superposition")
-        axs[4].set_ylabel("Voltage (mV)")
-        axs[4].set_xlabel("Time (s)")
+            # Plot superposition of all voltage traces
+            axs[4].set_title("AP rheo Voltage Traces Superposition")
+            axs[4].set_ylabel("Voltage (mV)")
+            axs[4].set_xlabel("Time (s)")
 
-        rheobase = None
-        sweep_points = None  # Default value when no APs are detected
+            sweep_points = None  # Default value when no APs are detected
 
-        for sweep_id in range(n_sweeps):
-            voltage = V_to_mV * bundle.data[group_id, series_id, sweep_id, 0]
-            current = A_to_pA * bundle.data[group_id, series_id, sweep_id, 1]
+            for sweep_id in range(n_sweeps):
+                voltage = V_to_mV * bundle.data[group_id, series_id, sweep_id, 0]
+                current = A_to_pA * bundle.data[group_id, series_id, sweep_id, 1]
 
-            # Plot voltage trace in superposition plot
-            axs[4].plot(time, voltage, alpha=0.5, label=f'Sweep {sweep_id + 1}')
+                # Plot voltage trace in superposition plot
+                axs[4].plot(time, voltage, alpha=0.5, label=f'Sweep {sweep_id + 1}')
 
-            di = current[idx2].mean() - current[idx1].mean()
+                di = current[idx2].mean() - current[idx1].mean()
 
-            ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
-                time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
-                window_for_searching_threshold, window_for_searching_ahp,
-                minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
-                maximal_relative_amplitude_decline, 0)
-
-            #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
-            if ap_number > 0:
-                sweep_points = {
-                    'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
-                    'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
-                    'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
-                    'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
-                    'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
-                    'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
-                    'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
-                }
-                # Store the analysis points in the nested dictionary
-                analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
-                # Log the structure of analysis points:
-                #print(f"Storing points: file_name={file_name}, group_id={group_id}, series_id={series_id}, sweep_id={sweep_id}, trace_id={0}")
-                #print(f"Points to store: {json.dumps(sweep_points, indent=2)}")
-
-            if rheobase is None and ap_number > 0:
-                rheobase = di
-                rheobase_voltage = voltage
-                ap_rheo_half_duration = hd_end_t[0] - hd_start_t[0]
-                ap_rheo_threshold_1st = th_v[0]
-                ap_rheo_threshold_2nd_1st = th_v_2nd[0]
-                ap_rheo_amplitude_1st = p_v[0] - th_v[0]
-                # Calculate average AP parameters
-                ap_rheo_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
-                ap_rheo_threshold_av = sum(th_v) / len(th_v)
-                ap_rheo_threshold_2nd_av = sum(th_v_2nd) / len(th_v_2nd)
-                ap_rheo_amplitude_av = sum(p_v[i] - th_v[i] for i in range(len(th_v))) / len(th_v)
-
-        # Formatting for AP rheo superposition plot
-        axs[4].grid(True)
-
-        # Setup rheobase trace plot
-        axs[5].set_title("Rheobase Voltage Trace")
-        axs[5].set_ylabel("Voltage (mV)")
-        axs[5].set_xlabel("Time (s)")
-        axs[5].plot(time, rheobase_voltage, label=f'Rheobase: {rheobase:.1f} pA')
-        axs[5].legend()
-        axs[5].grid(True)
-
-        # ==========================================================================================
-        # --- AP max ---
-        # ==========================================================================================
-        series_id = int(ap_max_series)
-        n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
-
-        # get time base
-        current = bundle.data[group_id, series_id, 0, 1]
-        n_points = len(current)
-        sampling_interval = bundle.pul[group_id][series_id][0][0].XInterval
-        time = np.arange(n_points) * sampling_interval
-
-        # Convert windows to indices
-        idx1 = (time >= window1_ap_max_start) & (time <= window1_ap_max_end)
-        idx2 = (time >= window2_ap_max_start) & (time <= window2_ap_max_end)
-
-        # Plot superposition of all voltage traces
-        axs[6].set_title("AP max Voltage Traces Superposition")
-        axs[6].set_ylabel("Voltage (mV)")
-        axs[6].set_xlabel("Time (s)")
-
-        max_ap_number = 0
-        max_ap_di = None
-        max_ap_voltage = None
-        ap_numbers = []
-        currents = []
-
-        for sweep_id in range(n_sweeps):
-            voltage = V_to_mV * bundle.data[group_id, series_id, sweep_id, 0]
-            current = A_to_pA * bundle.data[group_id, series_id, sweep_id, 1]
-
-            # Plot voltage trace in superposition plot
-            axs[6].plot(time, voltage, alpha=0.5, label=f'Sweep {sweep_id + 1}')
-
-            di = current[idx2].mean() - current[idx1].mean()
-            currents.append(di)
-
-            if sweep_id == which_sweep_to_plot_derivatives - 1:
-                ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
-                    time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
-                    window_for_searching_threshold, window_for_searching_ahp,
-                    minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
-                    maximal_relative_amplitude_decline, 1)
-            else:
                 ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
                     time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
                     maximal_relative_amplitude_decline, 0)
 
-            ap_numbers.append(ap_number)
+                #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
+                if ap_number > 0:
+                    sweep_points = {
+                        'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                        'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
+                        'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
+                        'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
+                        'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
+                        'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
+                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
+                    }
+                    # Store the analysis points in the nested dictionary
+                    analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
 
-            #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
-            if ap_number > 0:
-                sweep_points = {
-                    'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
-                    'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
-                    'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
-                    'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
-                    'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
-                    'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
-                    'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
-                }
-                # Store the analysis points in the nested dictionary
-                analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
-                # Log the structure of analysis points:
-                #print(f"Storing points: file_name={file_name}, group_id={group_id}, series_id={series_id}, sweep_id={sweep_id}, trace_id={0}")
-                #print(f"Points to store: {json.dumps(sweep_points, indent=2)}")
+                if rheobase is None and ap_number > 0:
+                    rheobase = di
+                    rheobase_voltage = voltage
+                    ap_rheo_half_duration = hd_end_t[0] - hd_start_t[0]
+                    ap_rheo_threshold_1st = th_v[0]
+                    ap_rheo_threshold_2nd_1st = th_v_2nd[0]
+                    ap_rheo_amplitude_1st = p_v[0] - th_v[0]
+                    # Calculate average AP parameters
+                    ap_rheo_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
+                    ap_rheo_threshold_av = sum(th_v) / len(th_v)
+                    ap_rheo_threshold_2nd_av = sum(th_v_2nd) / len(th_v_2nd)
+                    ap_rheo_amplitude_av = sum(p_v[i] - th_v[i] for i in range(len(th_v))) / len(th_v)
 
-            if ap_number > max_ap_number:
-                max_ap_number = ap_number
-                max_ap_di = di
-                max_ap_voltage = voltage
-                ap_max_threshold_1st = th_v[0]
-                ap_max_threshold_2nd_1st = th_v_2nd[0]
-                ap_max_amplitude_1st = p_v[0] - th_v[0]
-                # Calculate average AP parameters
-                ap_max_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
-                ap_max_threshold_av = sum(th_v) / ap_number
-                ap_max_threshold_2nd_av = sum(th_v_2nd) / ap_number
-                ap_max_amplitude_av = sum(p_v[i] - th_v[i] for i in range(ap_number)) / ap_number
+            # Formatting for AP rheo superposition plot
+            axs[4].grid(True)
 
+            # Setup rheobase trace plot
+            axs[5].set_title("Rheobase Voltage Trace")
+            axs[5].set_ylabel("Voltage (mV)")
+            axs[5].set_xlabel("Time (s)")
+            if rheobase is not None:
+                axs[5].plot(time, rheobase_voltage, label=f'Rheobase: {rheobase:.1f} pA')
+                axs[5].legend()
+            axs[5].grid(True)
+        else:
+            # Skip AP rheo analysis - create empty plots
+            axs[4].set_title("SKIPPED")
+            axs[4].set_ylabel("Voltage (mV)")
+            axs[4].set_xlabel("Time (s)")
+            axs[4].grid(True)
+            
+            axs[5].set_title("SKIPPED")
+            axs[5].set_ylabel("Voltage (mV)")
+            axs[5].set_xlabel("Time (s)")
+            axs[5].grid(True)
+            print(f"Skipping AP rheo analysis")
 
+        # ==========================================================================================
+        # --- AP max ---
+        # ==========================================================================================
+        
+        if ap_max_series_available:
+            series_id = ap_max_series
+            n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
 
-        # Add vertical lines and formatting for AP max superposition plot
-        axs[6].grid(True)
+            # ... existing AP max analysis code ...
+            # get time base
+            current = bundle.data[group_id, series_id, 0, 1]
+            n_points = len(current)
+            sampling_interval = bundle.pul[group_id][series_id][0][0].XInterval
+            time = np.arange(n_points) * sampling_interval
 
-        # Setup max AP trace plot
-        axs[7].set_title("Max AP Voltage Trace")
-        axs[7].set_ylabel("Voltage (mV)")
-        axs[7].set_xlabel("Time (s)")
-        if max_ap_voltage is not None:
-            axs[7].plot(time, max_ap_voltage, label=f'Max APs: {max_ap_number} at {max_ap_di:.1f} pA')
-            axs[7].legend()
-        axs[7].grid(True)
+            # Convert windows to indices
+            idx1 = (time >= window1_ap_max_start) & (time <= window1_ap_max_end)
+            idx2 = (time >= window2_ap_max_start) & (time <= window2_ap_max_end)
 
+            # Plot superposition of all voltage traces
+            axs[6].set_title("AP max Voltage Traces Superposition")
+            axs[6].set_ylabel("Voltage (mV)")
+            axs[6].set_xlabel("Time (s)")
 
-        # Plot number of APs vs current
-        axs[8].set_title("AP Frequency vs Current")
-        axs[8].set_ylabel("Number of APs")
-        axs[8].set_xlabel("Current (pA)")
-        axs[8].plot(currents, ap_numbers, 'o-')
-        axs[8].grid(True)
+            max_ap_number = 0
+            max_ap_di = None
+            max_ap_voltage = None
+            ap_numbers = []
+            currents = []
+
+            for sweep_id in range(n_sweeps):
+                voltage = V_to_mV * bundle.data[group_id, series_id, sweep_id, 0]
+                current = A_to_pA * bundle.data[group_id, series_id, sweep_id, 1]
+
+                # Plot voltage trace in superposition plot
+                axs[6].plot(time, voltage, alpha=0.5, label=f'Sweep {sweep_id + 1}')
+
+                di = current[idx2].mean() - current[idx1].mean()
+                currents.append(float(di))  # Convert numpy.float64 to Python float
+
+                if sweep_id == which_sweep_to_plot_derivatives - 1:
+                    ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+                        time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
+                        window_for_searching_threshold, window_for_searching_ahp,
+                        minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                        maximal_relative_amplitude_decline, 1)
+                else:
+                    ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+                        time, voltage, v_threshold, dvdt_threshold, filter_cut_off, fraction_of_max_of_2nd_derivative,
+                        window_for_searching_threshold, window_for_searching_ahp,
+                        minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                        maximal_relative_amplitude_decline, 0)
+
+                ap_numbers.append(int(ap_number))  # Convert to Python int
+                #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
+                if ap_number > 0:
+                    sweep_points = {
+                        'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                        'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
+                        'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
+                        'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
+                        'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
+                        'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
+                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
+                    }
+                    # Store the analysis points in the nested dictionary
+                    analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
+                    # Log the structure of analysis points:
+                    # print(f"Storing points: file_name={file_name}, group_id={group_id}, series_id={series_id}, sweep_id={sweep_id}, trace_id={0}")
+                    # print(f"Points to store: {json.dumps(sweep_points, indent=2)}")
+
+                if ap_number > max_ap_number:
+                    max_ap_number = ap_number
+                    max_ap_di = di
+                    max_ap_voltage = voltage
+                    ap_max_threshold_1st = th_v[0]
+                    ap_max_threshold_2nd_1st = th_v_2nd[0]
+                    ap_max_amplitude_1st = p_v[0] - th_v[0]
+                    # Calculate average AP parameters
+                    ap_max_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
+                    ap_max_threshold_av = sum(th_v) / ap_number
+                    ap_max_threshold_2nd_av = sum(th_v_2nd) / ap_number
+                    ap_max_amplitude_av = sum(p_v[i] - th_v[i] for i in range(ap_number)) / ap_number
+
+            axs[6].grid(True)
+
+            # Setup max AP trace plot
+            axs[7].set_title("Max AP Voltage Trace")
+            axs[7].set_ylabel("Voltage (mV)")
+            axs[7].set_xlabel("Time (s)")
+            if max_ap_voltage is not None:
+                axs[7].plot(time, max_ap_voltage, label=f'Max APs: {max_ap_number} at {max_ap_di:.1f} pA')
+                axs[7].legend()
+            axs[7].grid(True)
+
+            # Plot number of APs vs current
+            axs[8].set_title("AP Frequency vs Current")
+            axs[8].set_ylabel("Number of APs")
+            axs[8].set_xlabel("Current (pA)")
+            axs[8].plot(currents, ap_numbers, 'o-')
+            axs[8].grid(True)
+
+        else:
+            # Skip AP max analysis - create empty plots
+            axs[6].set_title("SKIPPED")
+            axs[6].set_ylabel("Voltage (mV)")
+            axs[6].set_xlabel("Time (s)")
+            axs[6].grid(True)
+
+            axs[7].set_title("SKIPPED")
+            axs[7].set_ylabel("Voltage (mV)")
+            axs[7].set_xlabel("Time (s)")
+            axs[7].grid(True)
+
+            axs[8].set_title("SKIPPED")
+            axs[8].set_ylabel("Number of APs")
+            axs[8].set_xlabel("Current (pA)")
+            axs[8].grid(True)
+            print(f"Skipping AP max analysis")
 
         # ==========================================================================================
         # --- Store results ---
@@ -639,17 +731,15 @@ def CC_eval():
             "ap_numbers": ap_numbers
         })
 
-
-
         # --- Save PDF ---
         plt.tight_layout()
         pdf_filename = f"{cell_count + 1:03d}_{os.path.splitext(file_name)[0]}.pdf"
         plt.savefig(os.path.join(output_folder_traces, pdf_filename))
         plt.close()
 
-
-
+    # ==========================================================================================
     # --- Save Results to Excel ---
+    # ==========================================================================================
     results_df = pd.DataFrame(results)
     excel_output_path = os.path.join(output_folder, "results.xlsx")
     results_df.to_excel(excel_output_path, index=False)
@@ -661,7 +751,24 @@ def CC_eval():
     # Process each cell's data
     for cell_count, row in metadata_df.iterrows():
         file_name = row['file_name']
-        series_id = int(row['ap_max_series']) - 1
+        
+        # Check if ap_max_series is valid before converting
+        def is_valid_series(value):
+            if pd.isna(value):
+                return False
+            try:
+                int_val = int(float(value))
+                return int_val > 0
+            except (ValueError, TypeError):
+                return False
+        
+        # Only process if ap_max_series is available and valid
+        if not is_valid_series(row['ap_max_series']):
+            # Skip this cell if ap_max_series is not valid
+            print(f"Skipping currents/ap_numbers export for {file_name} - invalid ap_max_series")
+            continue
+            
+        series_id = int(float(row['ap_max_series'])) - 1
 
         # Get the stored currents and ap_numbers for this cell
         currents_row = {'cell_count': cell_count + 1, 'file_name': file_name}
@@ -709,8 +816,7 @@ def start_browser():
     if sys.flags.interactive == 0:
         app.exec_()
 
+
 if __name__ == '__main__':
     CC_eval()
     start_browser()  # This will start the browser after CC_eval completes
-
-

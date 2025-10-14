@@ -177,25 +177,37 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off, frac
 
         hd_start_idx = None
         hd_end_idx = None
+        hd_start_time = None
+        hd_end_time = None
 
         # Find first crossing before peak
         for i in range(peak_idx, th_idx, -1):
             if voltage[i] <= half_amplitude:
+                # --- Linear interpolation between i and i+1 ---
+                v1, v2 = voltage[i], voltage[i + 1]
+                t1, t2 = time[i], time[i + 1]
+                frac = (half_amplitude - v1) / (v2 - v1) if v2 != v1 else 0.0
+                hd_start_time = t1 + frac * (t2 - t1)
                 hd_start_idx = i
                 break
 
         # Find first crossing after peak
         for i in range(peak_idx, ahp_idx):
             if voltage[i] <= half_amplitude:
+                v1, v2 = voltage[i - 1], voltage[i]
+                t1, t2 = time[i - 1], time[i]
+                frac = (half_amplitude - v1) / (v2 - v1) if v2 != v1 else 0.0
+                hd_end_time = t1 + frac * (t2 - t1)
                 hd_end_idx = i
                 break
 
         # Skip this AP if we couldn't find valid half-duration points
-        if hd_start_idx is None or hd_end_idx is None:
+        if hd_start_time is None or hd_end_time is None:
+            print(f"Warning: Could not find valid half-duration points. Skipped this AP.")
             continue
 
         # For validation of the AP before appending
-        half_duration = time[hd_end_idx] - time[hd_start_idx]
+        half_duration = hd_end_time - hd_start_time
         ap_amplitude = voltage[peak_idx] - voltage[th_idx]
 
         # Calculate relative amplitude (relative to first AP)
@@ -220,10 +232,10 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, filter_cut_off, frac
             ahp_t.append(time[ahp_idx])
             dvdt_v.append(voltage[dvdt_idx])
             dvdt_t.append(time[dvdt_idx])
-            hd_start_v.append(voltage[hd_start_idx])
-            hd_start_t.append(time[hd_start_idx])
-            hd_end_v.append(voltage[hd_end_idx])
-            hd_end_t.append(time[hd_end_idx])
+            hd_start_v.append(half_amplitude)  
+            hd_start_t.append(hd_start_time)
+            hd_end_v.append(half_amplitude)
+            hd_end_t.append(hd_end_time)
 
     ap_number = len(p_v)
 
@@ -552,9 +564,9 @@ def CC_eval():
                     analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
 
                 if rheobase is None and ap_number > 0:
+                    rheobase_voltage_trace = voltage
                     rheobase = di
-                    rheobase_voltage = voltage
-                    ap_rheo_half_duration = hd_end_t[0] - hd_start_t[0]
+                    ap_rheo_half_duration_1st = hd_end_t[0] - hd_start_t[0]
                     ap_rheo_threshold_1st = th_v[0]
                     ap_rheo_threshold_2nd_1st = th_v_2nd[0]
                     ap_rheo_amplitude_1st = p_v[0] - th_v[0]
@@ -572,7 +584,7 @@ def CC_eval():
             axs[5].set_ylabel("Voltage (mV)")
             axs[5].set_xlabel("Time (s)")
             if rheobase is not None:
-                axs[5].plot(time, rheobase_voltage, label=f'Rheobase: {rheobase:.1f} pA')
+                axs[5].plot(time, rheobase_voltage_trace, label=f'Rheobase: {rheobase:.1f} pA')
                 axs[5].legend()
             axs[5].grid(True)
         else:
@@ -614,7 +626,7 @@ def CC_eval():
 
             max_ap_number = 0
             max_ap_di = None
-            max_ap_voltage = None
+            max_ap_voltage_trace = None
             ap_numbers = []
             currents = []
 
@@ -660,9 +672,10 @@ def CC_eval():
                     # print(f"Points to store: {json.dumps(sweep_points, indent=2)}")
 
                 if ap_number > max_ap_number:
+                    max_ap_voltage_trace = voltage
                     max_ap_number = ap_number
                     max_ap_di = di
-                    max_ap_voltage = voltage
+                    ap_max_half_duration_1st = hd_end_t[0] - hd_start_t[0]
                     ap_max_threshold_1st = th_v[0]
                     ap_max_threshold_2nd_1st = th_v_2nd[0]
                     ap_max_amplitude_1st = p_v[0] - th_v[0]
@@ -693,8 +706,8 @@ def CC_eval():
             axs[7].set_title("Max AP Voltage Trace")
             axs[7].set_ylabel("Voltage (mV)")
             axs[7].set_xlabel("Time (s)")
-            if max_ap_voltage is not None:
-                axs[7].plot(time, max_ap_voltage, label=f'Max APs: {max_ap_number} at {max_ap_di:.1f} pA')
+            if max_ap_voltage_trace is not None:
+                axs[7].plot(time, max_ap_voltage_trace, label=f'Max APs: {max_ap_number} at {max_ap_di:.1f} pA')
                 axs[7].legend()
             axs[7].grid(True)
 
@@ -798,20 +811,26 @@ def CC_eval():
             "Rin_fit": rin_fit,
             "Rheobase": rheobase,
             "max_ap_number": max_ap_number,
+            "ap_rheo_half_duration_1st": ap_rheo_half_duration_1st,
             "ap_rheo_threshold_1st": ap_rheo_threshold_1st,
             "ap_rheo_threshold_2nd_1st": ap_rheo_threshold_2nd_1st,
             "ap_rheo_amplitude_1st": ap_rheo_amplitude_1st,
+            
             "ap_rheo_half_duration_av": ap_rheo_half_duration_av,
             "ap_rheo_threshold_av": ap_rheo_threshold_av,
             "ap_rheo_threshold_2nd_av": ap_rheo_threshold_2nd_av,
             "ap_rheo_amplitude_av": ap_rheo_amplitude_av,
+            
+            "ap_max_half_duration_1st": ap_max_half_duration_1st,
             "ap_max_threshold_1st": ap_max_threshold_1st,
             "ap_max_threshold_2nd_1st": ap_max_threshold_2nd_1st,
             "ap_max_amplitude_1st": ap_max_amplitude_1st,
+            
             "ap_max_half_duration_av": ap_max_half_duration_av,
             "ap_max_threshold_av": ap_max_threshold_av,
             "ap_max_threshold_2nd_av": ap_max_threshold_2nd_av,
             "ap_max_amplitude_av": ap_max_amplitude_av,
+            
             "ap_max_instantaneous_freq_1_2": ap_max_instantaneous_freq_1_2,
             "ap_max_average_freq_all": ap_max_average_freq_all,
             "currents": currents,

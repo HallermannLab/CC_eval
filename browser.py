@@ -6,7 +6,11 @@ from pyqtgraph.Qt import QtWidgets, QtCore
 import pandas as pd
 from config import IMPORT_FOLDER, METADATA_FILE, EXTERNAL_DATA_FOLDER
 import json
-from scipy import signal
+from scipy.signal import savgol_filter
+
+
+V_to_mV = 1e3
+sg_polyorder = 3
 
 analysis_points = {}
 
@@ -45,7 +49,7 @@ vsplit.addWidget(data_tree)
 plot_widget = pg.GraphicsLayoutWidget()
 
 # Create voltage plot (always present)
-voltage_plot = plot_widget.addPlot(row=0, col=0, title="Voltage Trace")
+voltage_plot = plot_widget.addPlot(row=0, col=0, title="Trace")
 voltage_plot.addLegend()
 voltage_plot.showGrid(x=True, y=True)
 
@@ -98,7 +102,7 @@ def setup_plots_voltage_only():
     plot_widget.clear()
 
     # Create only voltage plot using full space
-    voltage_plot = plot_widget.addPlot(row=0, col=0, title="Voltage Trace")
+    voltage_plot = plot_widget.addPlot(row=0, col=0, title="Trace")
     voltage_plot.addLegend()
     voltage_plot.showGrid(x=True, y=True)
 
@@ -198,52 +202,6 @@ def update_tree(root_item, index):
         update_tree(item, index + [i])
 
 
-def calculate_derivatives(time, voltage, filter_cut_off=1000.0):
-    """Calculate 1st and 2nd derivatives of voltage trace with filtering."""
-    # Constants
-    V_to_mV = 1000.0  # Conversion factor from V to mV
-
-    # Calculate time step
-    dt = time[1] - time[0] if len(time) > 1 else 1e-6
-
-    # Apply low-pass filter to voltage trace
-    nyquist = 0.5 / dt
-    cutoff_normalized = filter_cut_off / nyquist
-
-    # Ensure cutoff frequency is valid
-    if cutoff_normalized >= 1.0:
-        cutoff_normalized = 0.99
-
-    try:
-        b, a = signal.butter(2, cutoff_normalized, 'low')
-        voltage_filt = signal.filtfilt(b, a, voltage)
-    except:
-        # If filtering fails, use original voltage
-        voltage_filt = voltage.copy()
-
-    # Calculate 1st derivative
-    d1 = np.diff(voltage_filt) / dt
-    try:
-        d1_filt = signal.filtfilt(b, a, d1)
-    except:
-        d1_filt = d1.copy()
-    d1_in_V_per_s = d1_filt / V_to_mV
-
-    # Calculate 2nd derivative
-    d2 = np.diff(d1_in_V_per_s) / dt
-    try:
-        d2_filt = signal.filtfilt(b, a, d2)
-    except:
-        d2_filt = d2.copy()
-    d2_in_V_per_s_s = d2_filt / V_to_mV
-
-    # Create time arrays for derivatives (shorter due to diff)
-    time_d1 = time[:-1]  # First derivative has one less point
-    time_d2 = time[:-2]  # Second derivative has two less points
-
-    return time_d1, d1_in_V_per_s, time_d2, d2_in_V_per_s_s
-
-
 def replot():
     """Update plot and data tree when user selects a trace."""
     global voltage_plot, first_deriv_plot, second_deriv_plot
@@ -303,24 +261,44 @@ def replot():
             voltage_plot.setLabel('bottom', trace.XUnit)
             voltage_plot.setLabel('left', trace.Label, units=trace.YUnit)
             first_deriv_plot.setLabel('bottom', trace.XUnit)
-            first_deriv_plot.setLabel('left', 'dV/dt', units='V/s')
+            first_deriv_plot.setLabel('left', 'dV/dt (V/s)')
             second_deriv_plot.setLabel('bottom', trace.XUnit)
-            second_deriv_plot.setLabel('left', 'd²V/dt²', units='V/s²')
+            second_deriv_plot.setLabel('left', 'd²V/dt² (V/s²)')
 
             # Plot the main voltage trace
-            voltage_plot.plot(time, data, pen='w', name='Voltage')
+            voltage_plot.plot(time, data, pen='yellow', name='Voltage')
 
             trace_data = analysis_points[file_name][group_key][series_key][sweep_key][trace_key]
 
             # Get the filter_cut_off from analysis_points, with fallback
-            filter_cut_off = trace_data.get('filter_cut_off', 1000.0)
+            smooth_window = trace_data.get('smooth_window', 0.01)
 
-            # Calculate and plot derivatives with the correct filter cutoff
-            time_d1, first_deriv, time_d2, second_deriv = calculate_derivatives(time, data, filter_cut_off)
+            # use Savitzky-Golay filter for smoothing
+            dt = time[1] - time[0]
+            sg_window_s = smooth_window / 1000.0
+            win_samples = int(round(sg_window_s / dt))
+            # make odd and at least polyorder+2
+            if win_samples <= sg_polyorder + 1:
+                win_samples = sg_polyorder + 3
+            if win_samples % 2 == 0:
+                win_samples += 1
+
+            # smooth voltages and use numerical derivatives (central differences via np.gradient)
+            voltage_filt = savgol_filter(data, window_length=win_samples, polyorder=sg_polyorder)
+            d1 = np.gradient(voltage_filt, dt)
+            d1_in_V_per_s = savgol_filter(d1, window_length=win_samples, polyorder=sg_polyorder)
+            d2 = np.gradient(d1_in_V_per_s, dt)
+            d2 = d2 / V_to_mV
+            d2 = d2 / V_to_mV
+            #the 1st is V/s and 2nd is V/ms^2
+            d2_in_V_per_s_s = savgol_filter(d2, window_length=win_samples,
+                                    polyorder=sg_polyorder)  # CAVE overwrites the trace with the filtered one
 
             # Plot derivatives
-            first_deriv_plot.plot(time_d1, first_deriv, pen='cyan', name='1st Derivative')
-            second_deriv_plot.plot(time_d2, second_deriv, pen='magenta', name='2nd Derivative')
+            first_deriv_plot.plot(time, d1, pen='lightgray', name='1st Derivative (raw)')
+            first_deriv_plot.plot(time, d1_in_V_per_s, pen='yellow', name='1st Derivative (filtered)')
+            second_deriv_plot.plot(time, d2, pen='lightgray', name='2nd Derivative (raw)')
+            second_deriv_plot.plot(time, d2_in_V_per_s_s, pen='yellow', name='2nd Derivative (filtered)')
 
             points = trace_data
             # Plot each type of point with different symbols and colors
@@ -356,7 +334,7 @@ def replot():
             voltage_plot.setLabel('left', trace.Label, units=trace.YUnit)
 
             # Plot the main voltage trace
-            voltage_plot.plot(time, data, pen='w', name='Voltage')
+            voltage_plot.plot(time, data, pen='yellow', name='Trace')
 
 
 tree.itemSelectionChanged.connect(replot)

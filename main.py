@@ -581,7 +581,8 @@ def CC_eval():
                         'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
                         'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
                         'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
-                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
+                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v])),
+                        'filter_cut_off': filter_cut_off
                     }
                     # Store the analysis points in the nested dictionary
                     analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
@@ -684,7 +685,8 @@ def CC_eval():
                         'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
                         'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
                         'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
-                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
+                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v])),
+                        'filter_cut_off': filter_cut_off
                     }
                     # Store the analysis points in the nested dictionary
                     analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
@@ -804,7 +806,8 @@ def CC_eval():
                         'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
                         'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
                         'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
-                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v]))
+                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v])),!
+                        'filter_cut_off': filter_cut_off
                     }
                     analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
 

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 #from scipy.misc import derivative
 from scipy.stats import linregress
 #from scipy import signal
-from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter, find_peaks
 import heka_reader
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
@@ -16,44 +16,12 @@ from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE, EXTERNAL_DATA_FOLD
 #from config import analysis_points
 from collections import defaultdict
 import json
-from trace_viewer import show_three_traces
 
 
 
 # --- parameters ---
 A_to_pA = 1e12
 V_to_mV = 1e3
-
-
-"""
-These and some more values are now imported from the metadata file (metadata.xlsx)
-# windows for analysis estimating the current jump
-window1_rin_start = 0.01
-window1_rin_end = 0.09
-window2_rin_start = 0.30
-window2_rin_end = 0.39
-
-window1_ap_rheo_start = 0.01
-window1_ap_rheo_end = 0.09
-window2_ap_rheo_start = 0.30
-window2_ap_rheo_end = 0.39
-
-window1_ap_max_start = 0.01
-window1_ap_max_end = 0.09
-window2_ap_max_start = 0.30
-window2_ap_max_end = 0.39
-
-# parameters for AP detection
-v_threshold = -20
-dvdt_threshold = 10
-smooth_window = 1500 #Hz
-fraction_of_max_of_2nd_derivative = 0.3
-window_for_searching_threshold = 0.002
-window_for_searching_ahp = 0.01
-minimal_ap_interval = 0.001
-minimal_ap_duration = 0.0005
-maximal_ap_duration = 0.005
-"""
 
 
 def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
@@ -63,57 +31,7 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
 
     sg_polyorder = 3
 
-    """
-    Analyze action potential features from voltage trace
 
-    Args:
-        time: time points array (seconds)
-        voltage: voltage trace array (mV)
-        v_threshold: voltage threshold for AP detection (mV)
-        dvdt_threshold: dV/dt threshold for AP detection (V/s)
-        smooth_window: smoothing window for voltage traces (ms)
-        window_for_searching_threshold: time window for finding threshold (s)
-        window_for_searching_ahp: time window for finding AHP (s)
-        minimal_ap_interval: minimum time between APs (s)
-        minimal_ap_duration: minimum AP duration (s)
-        maximal_ap_duration: maximum AP duration (s)
-        maximal_relative_amplitude_decline: maximum allowed amplitude decline
-
-    Returns:
-        ap_number: number of APs detected
-        th_v: threshold voltages
-        th_t: threshold times
-        th_v_2nd: threshold voltages from 2nd derivative
-        th_t_2nd: threshold times from 2nd derivative
-        hd_start_t: half-duration start times
-        hd_start_v: half-duration start voltages
-        hd_end_t: half-duration end times
-        hd_end_v: half-duration end voltages
-        p_v: peak voltages
-        p_t: peak times
-        ahp_v: after-hyperpolarization voltages
-        ahp_t: after-hyperpolarization times
-        dvdt_v: max dV/dt values
-        dvdt_t: max dV/dt times
-    """
-
-    """
-    # use Bessel filter for low-pass filtering
-    # Apply low-pass filter to voltage trace
-    dt = time[1] - time[0]
-    nyquist = 0.5 / dt
-    cutoff_normalized = smooth_window / nyquist
-    b, a = signal.butter(2, cutoff_normalized, 'low')
-    voltage_filt = signal.filtfilt(b, a, voltage)
-
-    # Calculate 1st and 2nd derivatives using filtered trace
-    d1 = np.diff(voltage_filt) / dt
-    d1_filt = signal.filtfilt(b, a, d1) # CAVE overwrites the trace with the filtered one
-    d1_in_V_per_s = d1_filt / V_to_mV
-    d2 = np.diff(d1_in_V_per_s) / dt
-    d2_filt = signal.filtfilt(b, a, d2)  # CAVE overwrites the trace with the filtered one
-    d2_in_V_per_s_s = d2_filt / V_to_mV
-    """
     # use Savitzky-Golay filter for smoothing
     dt = time[1] - time[0]
     sg_window_s = smooth_window / 1000.0
@@ -125,6 +43,7 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
         win_samples += 1
 
     # smooth voltages and use numerical derivatives (central differences via np.gradient)
+    # NOTE difference with browser.py, where voltage is in V (to show unmodified traces) and dV/dt is in V/s (also used as thershold value) but d2V/dt2 is in V/ms^2 (to remove 1e6 in the number on the axes)
     voltage_filt = savgol_filter(voltage, window_length=win_samples, polyorder=sg_polyorder)
     d1 = np.gradient(voltage_filt, dt)
     d1_filt = savgol_filter(d1, window_length=win_samples, polyorder=sg_polyorder)
@@ -133,27 +52,17 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
     d2_filt = savgol_filter(d2, window_length=win_samples, polyorder=sg_polyorder)  # CAVE overwrites the trace with the filtered one
     d2_in_V_per_s_s = d2_filt / V_to_mV
 
-    """
-    to check difference with browser.py
-    voltage_filt = savgol_filter(data, window_length=win_samples, polyorder=sg_polyorder)
-    d1 = np.gradient(voltage_filt, dt)
-    d1_in_V_per_s = savgol_filter(d1, window_length=win_samples, polyorder=sg_polyorder)
-    d2 = np.gradient(d1_in_V_per_s, dt)
-    d2 = d2 / V_to_mV
-    d2 = d2 / V_to_mV
-    # the 1st is V/s and 2nd is V/ms^2
-    d2_in_V_per_s_s = savgol_filter(d2, window_length=win_samples,
-                                    polyorder=sg_polyorder)  # CAVE overwrites the trace with the filtered one
-    """
 
     # Find threshold crossings where voltage crosses v_threshold
     threshold_idx = np.where((voltage[:-1] < v_threshold) & (voltage[1:] >= v_threshold))[0]
 
     # Initialize results
     th_v = []
+    th_v1 = []
     th_t = []
     th_v_2nd = []
     th_t_2nd = []
+    th_d2_2nd = []
     p_v = []
     p_t = []
     ahp_v = []
@@ -162,8 +71,12 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
     hd_start_t = []
     hd_end_v = []
     hd_end_t = []
-    dvdt_v = []
-    dvdt_t = []
+    maxdvdt_v = []
+    maxdvdt_t = []
+    d2_peak1_v = []
+    d2_peak1_t = []
+    d2_peak2_v = []
+    d2_peak2_t = []
 
     for idx in threshold_idx:
         # Get window indices
@@ -179,24 +92,73 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
         # Find threshold based on dV/dt
         th_idx = start_idx + th_idx_candidates[0]
 
-        # Find threshold based on 2nd derivative crossing 30% of max
+        # Find threshold based on 2nd derivative crossing fraction_of_max_of_2nd_derivative (e.g. 30%) of max
         window_d2 = d2_in_V_per_s_s[start_idx:end_idx]
-        d2_max = np.max(window_d2)
+        d2_max_idx = np.argmax(window_d2)
+        d2_max = window_d2[d2_max_idx]
         d2_threshold = fraction_of_max_of_2nd_derivative * d2_max
 
-        # Find first crossing of 30% threshold - but ensure it's actually a crossing
+        # Find two peaks: peak1 (left) and peak2 (right) using scipy peak detection
+        # Set minimum peak height to avoid noise
+        min_peak_height = np.max(window_d2) * 0.05  # 5% of max value
+        peaks, _ = find_peaks(window_d2, height=min_peak_height)
+        
+        if len(peaks) >= 2:
+            # Sort peaks by value (descending) and take the two highest
+            peak_values = window_d2[peaks]
+            sorted_peak_indices = np.argsort(peak_values)[::-1]  # Sort in descending order
+            
+            # Get the two highest peaks
+            highest_peaks = peaks[sorted_peak_indices[:2]]
+            
+            # Sort by position to determine left (peak1) and right (peak2)
+            highest_peaks_sorted = np.sort(highest_peaks)
+            d2_peak1_idx = highest_peaks_sorted[0]  # Left peak
+            d2_peak2_idx = highest_peaks_sorted[1]  # Right peak
+            
+            d2_peak1 = window_d2[d2_peak1_idx]
+            d2_peak2 = window_d2[d2_peak2_idx]
+            
+        elif len(peaks) == 1:
+            # Only one peak found, use it as peak1 and set peak2 to max
+            d2_peak1_idx = peaks[0]
+            d2_peak1 = window_d2[d2_peak1_idx]
+            d2_peak2_idx = d2_max_idx
+            d2_peak2 = d2_max
+            
+        else:
+            # No peaks found, fallback to using max as peak1 and a default for peak2
+            d2_peak1_idx = d2_max_idx
+            d2_peak1 = d2_max
+            # Find a second high point if possible
+            if len(window_d2) > 1:
+                # Find second highest value
+                second_max_idx = np.argsort(window_d2)[-2] if len(window_d2) > 1 else 0
+                d2_peak2_idx = second_max_idx
+                d2_peak2 = window_d2[second_max_idx]
+            else:
+                d2_peak2_idx = 0
+                d2_peak2 = 0
+
+        # Find first crossing of threshold (use the higher peak for threshold calculation)
+        higher_peak_value = max(d2_peak1, d2_peak2)
+        d2_threshold = fraction_of_max_of_2nd_derivative * higher_peak_value
+        
+        # Find first crossing of threshold - but ensure it's actually a crossing
         # Look for points that cross the threshold from below
         crossing_indices = []
         for i in range(1, len(window_d2)):
             if window_d2[i-1] < d2_threshold and window_d2[i] >= d2_threshold:
                 crossing_indices.append(i)
-        
+
         if len(crossing_indices) > 0:
             th_idx_2nd = start_idx + crossing_indices[0]
         else:
-            print(f"Warning: Could not find 2nd derivative threshold crossing in. Using maximum instead.")
-            th_idx_2nd = start_idx + np.argmax(window_d2)  # Fallback to max if no crossing found
+            print(f"Warning: Could not find 2nd derivative threshold crossing. Using higher peak instead.")
+            th_idx_2nd = start_idx + (d2_peak1_idx if d2_peak1 > d2_peak2 else d2_peak2_idx)
 
+
+        # Find AP peak
         peak_idx = th_idx + np.argmax(voltage[th_idx:th_idx + int(maximal_ap_duration / dt)])
 
         # Find AHP
@@ -209,8 +171,6 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
         # Calculate half-duration points
         half_amplitude = (voltage[peak_idx] - voltage[th_idx]) / 2 + voltage[th_idx]
 
-        hd_start_idx = None
-        hd_end_idx = None
         hd_start_time = None
         hd_end_time = None
 
@@ -222,7 +182,6 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
                 t1, t2 = time[i], time[i + 1]
                 frac = (half_amplitude - v1) / (v2 - v1) if v2 != v1 else 0.0
                 hd_start_time = t1 + frac * (t2 - t1)
-                hd_start_idx = i
                 break
 
         # Find first crossing after peak
@@ -232,7 +191,6 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
                 t1, t2 = time[i - 1], time[i]
                 frac = (half_amplitude - v1) / (v2 - v1) if v2 != v1 else 0.0
                 hd_end_time = t1 + frac * (t2 - t1)
-                hd_end_idx = i
                 break
 
         # Skip this AP if we couldn't find valid half-duration points
@@ -257,23 +215,29 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
                 minimal_ap_duration <= half_duration <= maximal_ap_duration and
                 relative_amplitude >= maximal_relative_amplitude_decline):
             th_v.append(voltage[th_idx])
+            th_v1.append(d1_in_V_per_s[th_idx])
             th_t.append(time[th_idx])
             th_v_2nd.append(voltage[th_idx_2nd])
             th_t_2nd.append(time[th_idx_2nd])
+            th_d2_2nd.append(d2_in_V_per_s_s[th_idx_2nd])
             p_v.append(voltage[peak_idx])
             p_t.append(time[peak_idx])
             ahp_v.append(voltage[ahp_idx])
             ahp_t.append(time[ahp_idx])
-            dvdt_v.append(voltage[dvdt_idx])
-            dvdt_t.append(time[dvdt_idx])
-            hd_start_v.append(half_amplitude)  
+            maxdvdt_v.append(voltage[dvdt_idx])
+            maxdvdt_t.append(time[dvdt_idx])
+            hd_start_v.append(half_amplitude)
             hd_start_t.append(hd_start_time)
             hd_end_v.append(half_amplitude)
             hd_end_t.append(hd_end_time)
+            d2_peak1_v.append(d2_peak1)
+            d2_peak1_t.append(time[start_idx + d2_peak1_idx])
+            d2_peak2_v.append(d2_peak2)
+            d2_peak2_t.append(time[start_idx + d2_peak2_idx])
 
     ap_number = len(p_v)
 
-    return ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t
+    return ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t
 
 
 def CC_eval():
@@ -322,7 +286,7 @@ def CC_eval():
         print(f"Processing cell {cell_count + 1}: {row['file_name']}")
 
         file_name = row['file_name']
-        
+
         # Check if series values are provided and valid (not NaN, not empty, and numeric)
         def is_valid_series(value):
             if pd.isna(value):
@@ -333,7 +297,7 @@ def CC_eval():
                 return int_val > 0  # Series numbers should be positive
             except (ValueError, TypeError):
                 return False
-        
+
         rmp_series_available = is_valid_series(row['rmp_series'])
         rin_series_available = is_valid_series(row['rin_series'])
         ap_rheo_series_available = is_valid_series(row['ap_rheo_series'])
@@ -352,8 +316,8 @@ def CC_eval():
         #print(f"Raw values: RMP={row['rmp_series']}, Rin={row['rin_series']}, AP_rheo={row['ap_rheo_series']}, AP_max={row['ap_max_series']}")
 
         # ... existing parameter loading code ...
-        rin_series_from_current = row['rin_series_from_current'] 
-        rin_series_to_current = row['rin_series_to_current'] 
+        rin_series_from_current = row['rin_series_from_current']
+        rin_series_to_current = row['rin_series_to_current']
 
         window1_rin_start = row['window1_rin_start']
         window1_rin_end = row['window1_rin_end']
@@ -406,11 +370,14 @@ def CC_eval():
         ap_rheo_threshold_1st = None
         ap_rheo_threshold_2nd_1st = None
         ap_rheo_amplitude_1st = None
+        ap_rheo_baseline_voltage = None
+        ap_rheo_first_ap_delay = None
 
         ap_rheo_half_duration_av = None
         ap_rheo_threshold_av = None
         ap_rheo_threshold_2nd_av = None
         ap_rheo_amplitude_av = None
+        ap_max_baseline_voltage = None
 
         ap_max_half_duration_1st = None
         ap_max_threshold_1st = None
@@ -424,13 +391,16 @@ def CC_eval():
 
         ap_max_instantaneous_freq_1_2 = None
         ap_max_average_freq_all = None
-
+        ap_max_peak1_peak2_interval_1st = None
+        ap_max_peak1_peak2_interval_av = None
         ap_max_list_current_steps = []
         ap_max_list_ap_numbers = []
         ap_max_list_instantaneous_freq_1_2 = []
         ap_max_list_half_duration_1st = []
         ap_max_list_threshold_1st = []
         ap_max_list_amplitude_1st = []
+        ap_max_list_voltage_baseline = []
+        ap_max_list_average_frequency = []
 
         ap_broadening_list_voltage_baseline = []
         ap_broadening_list_half_duration_1st = []
@@ -444,7 +414,7 @@ def CC_eval():
 
         if rmp_series_available:
             series_id = rmp_series
-            
+
             n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
             voltage_trace = V_to_mV * bundle.data[group_id, series_id, 0, 0]
 
@@ -475,7 +445,7 @@ def CC_eval():
         # ==========================================================================================
         # --- Rin ---
         # ==========================================================================================
-        
+
         if rin_series_available:
             series_id = rin_series
             n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
@@ -554,12 +524,12 @@ def CC_eval():
             axs[1].set_xlabel("ΔI (pA)")
             axs[1].set_ylabel("ΔV (mV)")
             axs[1].grid(True)
-            
+
             axs[2].set_title("SKIPPED")
             axs[2].set_ylabel("Current (pA)")
             axs[2].set_xlabel("Time (s)")
             axs[2].grid(True)
-            
+
             axs[3].set_title("SKIPPED")
             axs[3].set_ylabel("Voltage (mV)")
             axs[3].set_xlabel("Time (s)")
@@ -569,7 +539,7 @@ def CC_eval():
         # ==========================================================================================
         # --- AP rheo ---
         # ==========================================================================================
-        
+
         if ap_rheo_series_available:
             series_id = ap_rheo_series
             n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
@@ -600,7 +570,7 @@ def CC_eval():
 
                 di = current[idx2].mean() - current[idx1].mean()
 
-                ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
                     time, voltage, v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
@@ -610,12 +580,16 @@ def CC_eval():
                 if ap_number > 0:
                     sweep_points = {
                         'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                        'threshold_v1': list(zip(th_t, [v / 1.0 for v in th_v1])), # CAVE dVdt plot in browser is using V/s
                         'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
                         'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
                         'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
                         'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
                         'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
-                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v])),
+                        'dvdt_max': list(zip(maxdvdt_t, [v / V_to_mV for v in maxdvdt_v])),
+                        'd2_peak1': list(zip(d2_peak1_t, [v / V_to_mV for v in d2_peak1_v])),  # CAVE dVdt2 plot in browser is using V/ms^2
+                        'd2_peak2': list(zip(d2_peak2_t, [v / V_to_mV for v in d2_peak2_v])), # CAVE dVdt2 plot in browser is using V/ms^2
+                        'd2_threshold': list(zip(th_t_2nd, [v / V_to_mV for v in th_d2_2nd])), # CAVE dVdt2 plot in browser is using V/ms^2
                         'smooth_window': smooth_window
                     }
                     # Store the analysis points in the nested dictionary
@@ -624,6 +598,12 @@ def CC_eval():
                 if rheobase is None and ap_number > 0:
                     rheobase_voltage_trace = voltage
                     rheobase = di
+                    # Calculate baseline voltage from window1 (before stimulus)
+                    ap_rheo_baseline_voltage = voltage[idx1].mean()
+                    # Calculate delay of first AP (time from stimulus start to first AP threshold)
+                    # Assuming stimulus starts at window2_ap_rheo_start
+                    ap_rheo_first_ap_delay = th_t[0] - window2_ap_rheo_start
+                    
                     ap_rheo_half_duration_1st = hd_end_t[0] - hd_start_t[0]
                     ap_rheo_threshold_1st = th_v[0]
                     ap_rheo_threshold_2nd_1st = th_v_2nd[0]
@@ -651,7 +631,7 @@ def CC_eval():
             axs[4].set_ylabel("Voltage (mV)")
             axs[4].set_xlabel("Time (s)")
             axs[4].grid(True)
-            
+
             axs[5].set_title("SKIPPED")
             axs[5].set_ylabel("Voltage (mV)")
             axs[5].set_xlabel("Time (s)")
@@ -661,7 +641,7 @@ def CC_eval():
         # ==========================================================================================
         # --- AP max ---
         # ==========================================================================================
-        
+
         if ap_max_series_available:
             series_id = ap_max_series
             n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
@@ -694,8 +674,12 @@ def CC_eval():
 
                 di = current[idx2].mean() - current[idx1].mean()
                 ap_max_list_current_steps.append(float(di))  # Convert numpy.float64 to Python float
+                
+                # Calculate baseline voltage for this sweep
+                baseline_voltage = voltage[idx1].mean()
+                ap_max_list_voltage_baseline.append(float(baseline_voltage))
 
-                ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
                     time, voltage, v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
@@ -704,15 +688,28 @@ def CC_eval():
                 ap_max_list_ap_numbers.append(int(ap_number))  # Convert to Python int
                 #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
 
+                # Calculate average frequency for this sweep
+                if ap_number >= 2:
+                    # Average frequency of all APs (Hz)
+                    total_time = p_t[-1] - p_t[0]  # Time from first to last AP
+                    average_frequency = (ap_number - 1) / total_time  # Number of intervals / total time
+                    ap_max_list_average_frequency.append(float(average_frequency))
+                else:
+                    ap_max_list_average_frequency.append(None)
+
                 if ap_number > 0:
                     sweep_points = {
                         'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                        'threshold_v1': list(zip(th_t, [v / 1.0 for v in th_v1])), # CAVE dVdt plot in browser is using V/s
                         'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
                         'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
                         'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
                         'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
                         'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
-                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v])),
+                        'dvdt_max': list(zip(maxdvdt_t, [v / V_to_mV for v in maxdvdt_v])),
+                        'd2_peak1': list(zip(d2_peak1_t, [v / V_to_mV for v in d2_peak1_v])),  # CAVE dVdt2 plot in browser is using V/ms^2
+                        'd2_peak2': list(zip(d2_peak2_t, [v / V_to_mV for v in d2_peak2_v])), # CAVE dVdt2 plot in browser is using V/ms^2
+                        'd2_threshold': list(zip(th_t_2nd, [v / V_to_mV for v in th_d2_2nd])),    # CAVE dVdt2 plot in browser is using V/ms^2
                         'smooth_window': smooth_window
                     }
                     # Store the analysis points in the nested dictionary
@@ -747,15 +744,19 @@ def CC_eval():
                     max_ap_number = ap_number
                     max_ap_voltage_trace = voltage
                     max_ap_di = di
+                    # Calculate baseline voltage from window1 (before stimulus) for max AP trace
+                    ap_max_baseline_voltage = voltage[idx1].mean()                 
                     ap_max_half_duration_1st = hd_end_t[0] - hd_start_t[0]
                     ap_max_threshold_1st = th_v[0]
                     ap_max_threshold_2nd_1st = th_v_2nd[0]
                     ap_max_amplitude_1st = p_v[0] - th_v[0]
+                    ap_max_peak1_peak2_interval_1st = d2_peak2_t[0] - d2_peak1_t[0]
                     # Calculate average AP parameters
                     ap_max_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
                     ap_max_threshold_av = sum(th_v) / ap_number
                     ap_max_threshold_2nd_av = sum(th_v_2nd) / ap_number
                     ap_max_amplitude_av = sum(p_v[i] - th_v[i] for i in range(ap_number)) / ap_number
+                    ap_max_peak1_peak2_interval_av = sum(d2_peak2_t[i] - d2_peak1_t[i] for i in range(ap_number)) / ap_number
 
             axs[6].grid(True)
 
@@ -817,7 +818,7 @@ def CC_eval():
                 baseline_voltage = voltage[idx1].mean()
                 ap_broadening_list_voltage_baseline.append(float(baseline_voltage))  # Convert numpy.float64 to Python float
 
-                ap_number, th_v, th_t, th_v_2nd, th_t_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, dvdt_v, dvdt_t = ap_analysis(
+                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
                     time, voltage, v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
@@ -828,12 +829,16 @@ def CC_eval():
                     # Store analysis points
                     sweep_points = {
                         'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
+                        'threshold_v1': list(zip(th_t, [v / 1.0 for v in th_v1])), # CAVE dVdt plot in browser is using V/s
                         'threshold_2nd': list(zip(th_t_2nd, [v / V_to_mV for v in th_v_2nd])),
                         'half_duration_start': list(zip(hd_start_t, [v / V_to_mV for v in hd_start_v])),
                         'half_duration_end': list(zip(hd_end_t, [v / V_to_mV for v in hd_end_v])),
                         'peak': list(zip(p_t, [v / V_to_mV for v in p_v])),
                         'ahp': list(zip(ahp_t, [v / V_to_mV for v in ahp_v])),
-                        'dvdt_max': list(zip(dvdt_t, [v / V_to_mV for v in dvdt_v])),
+                        'dvdt_max': list(zip(maxdvdt_t, [v / V_to_mV for v in maxdvdt_v])),
+                        'd2_peak1': list(zip(d2_peak1_t, [v / V_to_mV for v in d2_peak1_v])),  # CAVE dVdt2 plot in browser is using V/ms^2
+                        'd2_peak2': list(zip(d2_peak2_t, [v / V_to_mV for v in d2_peak2_v])), # CAVE dVdt2 plot in browser is using V/ms^2
+                        'd2_threshold': list(zip(th_t_2nd, [v / V_to_mV for v in th_d2_2nd])),    # CAVE dVdt2 plot in browser is using V/ms^2
                         'smooth_window': smooth_window
                     }
                     analysis_points[file_name][group_id][series_id][sweep_id][0] = sweep_points
@@ -888,17 +893,21 @@ def CC_eval():
             "ap_rheo_threshold_av": ap_rheo_threshold_av,
             "ap_rheo_threshold_2nd_av": ap_rheo_threshold_2nd_av,
             "ap_rheo_amplitude_av": ap_rheo_amplitude_av,
+            "ap_rheo_baseline_voltage": ap_rheo_baseline_voltage,
+            "ap_rheo_first_ap_delay": ap_rheo_first_ap_delay,
             
             "ap_max_half_duration_1st": ap_max_half_duration_1st,
             "ap_max_threshold_1st": ap_max_threshold_1st,
             "ap_max_threshold_2nd_1st": ap_max_threshold_2nd_1st,
             "ap_max_amplitude_1st": ap_max_amplitude_1st,
-            
+            "ap_max_baseline_voltage": ap_max_baseline_voltage,
+
             "ap_max_half_duration_av": ap_max_half_duration_av,
             "ap_max_threshold_av": ap_max_threshold_av,
             "ap_max_threshold_2nd_av": ap_max_threshold_2nd_av,
             "ap_max_amplitude_av": ap_max_amplitude_av,
-            
+            "ap_max_peak1_peak2_interval_1st": ap_max_peak1_peak2_interval_1st,
+            "ap_max_peak1_peak2_interval_av": ap_max_peak1_peak2_interval_av,
             "ap_max_instantaneous_freq_1_2": ap_max_instantaneous_freq_1_2,
             "ap_max_average_freq_all": ap_max_average_freq_all,
 
@@ -908,6 +917,8 @@ def CC_eval():
             "ap_max_list_half_duration_1st": ap_max_list_half_duration_1st,
             "ap_max_list_threshold_1st": ap_max_list_threshold_1st,
             "ap_max_list_amplitude_1st": ap_max_list_amplitude_1st,
+            "ap_max_list_voltage_baseline": ap_max_list_voltage_baseline,
+            "ap_max_list_average_frequency": ap_max_list_average_frequency,
 
             "ap_broadening_list_voltage_baseline": ap_broadening_list_voltage_baseline,
             "ap_broadening_list_half_duration_1st": ap_broadening_list_half_duration_1st,
@@ -927,8 +938,8 @@ def CC_eval():
     # results EXCEL file
     results_df = pd.DataFrame(results)
     excel_output_path = os.path.join(output_folder_results, "results.xlsx")
-    # Create copy without the last 10 columns for export
-    export_df = results_df.iloc[:, :-10]
+    # Create copy without the last 12 columns for export, which are stored in separate excel files below
+    export_df = results_df.iloc[:, :-12]
     export_df.to_excel(excel_output_path, index=False)
 
     # lists of ap max =========================================
@@ -939,6 +950,8 @@ def CC_eval():
     ap_max_list_half_duration_1st_data = []
     ap_max_list_threshold_1st_data = []
     ap_max_list_amplitude_1st_data = []
+    ap_max_list_voltage_baseline_data = []
+    ap_max_list_average_frequency_data = []
 
     # Process each cell's data
     for cell_count, row in metadata_df.iterrows():
@@ -969,19 +982,25 @@ def CC_eval():
         ap_max_list_half_duration_1st_row = {'cell_count': cell_count + 1, 'file_name': file_name}
         ap_max_list_threshold_1st_row = {'cell_count': cell_count + 1, 'file_name': file_name}
         ap_max_list_amplitude_1st_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+        ap_max_list_voltage_baseline_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+        ap_max_list_average_frequency_row = {'cell_count': cell_count + 1, 'file_name': file_name}
 
-        for i, (tmp1, tmp2 ,tmp3, tmp4, tmp5, tmp6) in enumerate(zip(results[cell_count]['ap_max_list_current_steps'],
+        for i, (tmp1, tmp2 ,tmp3, tmp4, tmp5, tmp6, tmp7, tmp8) in enumerate(zip(results[cell_count]['ap_max_list_current_steps'],
                                                                     results[cell_count]['ap_max_list_ap_numbers'],
                                                                     results[cell_count]['ap_max_list_instantaneous_freq_1_2'],
                                                                     results[cell_count]['ap_max_list_half_duration_1st'],
                                                                     results[cell_count]['ap_max_list_threshold_1st'],
-                                                                    results[cell_count]['ap_max_list_amplitude_1st']), 1):
+                                                                    results[cell_count]['ap_max_list_amplitude_1st'],
+                                                                    results[cell_count]['ap_max_list_voltage_baseline'],
+                                                                    results[cell_count]['ap_max_list_average_frequency']), 1):
             ap_max_list_current_steps_row[f'sweep_{i}'] = tmp1
             ap_max_list_ap_numbers_row[f'sweep_{i}'] = tmp2
             ap_max_list_instantaneous_freq_1_2_row[f'sweep_{i}'] = tmp3
             ap_max_list_half_duration_1st_row[f'sweep_{i}'] = tmp4
             ap_max_list_threshold_1st_row[f'sweep_{i}'] = tmp5
             ap_max_list_amplitude_1st_row[f'sweep_{i}'] = tmp6
+            ap_max_list_voltage_baseline_row[f'sweep_{i}'] = tmp7
+            ap_max_list_average_frequency_row[f'sweep_{i}'] = tmp8
 
         ap_max_list_current_steps_data.append(ap_max_list_current_steps_row)
         ap_max_list_ap_numbers_data.append(ap_max_list_ap_numbers_row)
@@ -989,9 +1008,10 @@ def CC_eval():
         ap_max_list_half_duration_1st_data.append(ap_max_list_half_duration_1st_row)
         ap_max_list_threshold_1st_data.append(ap_max_list_threshold_1st_row)
         ap_max_list_amplitude_1st_data.append(ap_max_list_amplitude_1st_row)
+        ap_max_list_voltage_baseline_data.append(ap_max_list_voltage_baseline_row)
+        ap_max_list_average_frequency_data.append(ap_max_list_average_frequency_row)
 
-    # lists of ap broadening =========================================
-    # Create DataFrames for lists
+    # ap_broadening series
     ap_broadening_list_voltage_baseline_data = []
     ap_broadening_list_half_duration_1st_data = []
     ap_broadening_list_threshold_1st_data = []
@@ -1075,6 +1095,15 @@ def CC_eval():
     ap_broadening_list_amplitude_1st_df = pd.DataFrame(ap_broadening_list_amplitude_1st_data)
     ap_broadening_list_amplitude_1st_excel_path = os.path.join(output_folder_results, "ap_broadening_list_amplitude_1st.xlsx")
     ap_broadening_list_amplitude_1st_df.to_excel(ap_broadening_list_amplitude_1st_excel_path, index=False)
+
+    ap_max_list_average_frequency_df = pd.DataFrame(ap_max_list_average_frequency_data)
+    ap_max_list_average_frequency_excel_path = os.path.join(output_folder_results, "ap_max_list_average_frequency.xlsx")
+    ap_max_list_average_frequency_df.to_excel(ap_max_list_average_frequency_excel_path, index=False)
+
+    ap_max_list_voltage_baseline_df = pd.DataFrame(ap_max_list_voltage_baseline_data)
+    ap_max_list_voltage_baseline_excel_path = os.path.join(output_folder_results, "ap_max_list_voltage_baseline.xlsx")
+    ap_max_list_voltage_baseline_df.to_excel(ap_max_list_voltage_baseline_excel_path, index=False)
+
 
     # save points =========================================
     # Save analysis points to JSON file

@@ -6,7 +6,11 @@ from pyqtgraph.Qt import QtWidgets, QtCore
 import pandas as pd
 from config import IMPORT_FOLDER, METADATA_FILE, EXTERNAL_DATA_FOLDER
 import json
+from scipy.signal import savgol_filter
 
+
+V_to_mV = 1e3
+sg_polyorder = 3
 
 analysis_points = {}
 
@@ -41,16 +45,70 @@ w1l.addWidget(tree, 1, 0)
 data_tree = pg.DataTreeWidget()
 vsplit.addWidget(data_tree)
 
-# Plot for displaying trace data
-plot = pg.PlotWidget()
-plot.addLegend()  # Add legend once during initialization
-hsplit.addWidget(plot)
+# Create plot widget
+plot_widget = pg.GraphicsLayoutWidget()
+
+# Create voltage plot (always present)
+voltage_plot = plot_widget.addPlot(row=0, col=0, title="Trace")
+voltage_plot.addLegend()
+voltage_plot.showGrid(x=True, y=True)
+
+# Initialize derivative plots as None (will be created dynamically)
+first_deriv_plot = None
+second_deriv_plot = None
+
+hsplit.addWidget(plot_widget)
 
 # Resize and show window
 hsplit.setStretchFactor(0, 400)
 hsplit.setStretchFactor(1, 600)
 win.resize(1200, 800)
 win.show()
+
+
+def setup_plots_with_derivatives():
+    """Set up the plot layout with derivative plots (60/20/20 split)."""
+    global voltage_plot, first_deriv_plot, second_deriv_plot, plot_widget
+
+    # Clear existing layout
+    plot_widget.clear()
+
+    # Create three plots with proper row stretch factors
+    voltage_plot = plot_widget.addPlot(row=0, col=0, title="Voltage Trace")
+    voltage_plot.addLegend()
+    voltage_plot.showGrid(x=True, y=True)
+
+    first_deriv_plot = plot_widget.addPlot(row=1, col=0, title="1st Derivative (dV/dt)")
+    first_deriv_plot.showGrid(x=True, y=True)
+
+    second_deriv_plot = plot_widget.addPlot(row=2, col=0, title="2nd Derivative (d²V/dt²)")
+    second_deriv_plot.showGrid(x=True, y=True)
+
+    # Set row stretch factors for 60/20/20 split
+    plot_widget.ci.layout.setRowStretchFactor(0, 60)
+    plot_widget.ci.layout.setRowStretchFactor(1, 20)
+    plot_widget.ci.layout.setRowStretchFactor(2, 20)
+
+    # Link x-axes for synchronized scrolling
+    first_deriv_plot.setXLink(voltage_plot)
+    second_deriv_plot.setXLink(voltage_plot)
+
+
+def setup_plots_voltage_only():
+    """Set up the plot layout with only the voltage plot (100% of space)."""
+    global voltage_plot, first_deriv_plot, second_deriv_plot, plot_widget
+
+    # Clear existing layout
+    plot_widget.clear()
+
+    # Create only voltage plot using full space
+    voltage_plot = plot_widget.addPlot(row=0, col=0, title="Trace")
+    voltage_plot.addLegend()
+    voltage_plot.showGrid(x=True, y=True)
+
+    # Reset derivative plot references
+    first_deriv_plot = None
+    second_deriv_plot = None
 
 
 def load_clicked():
@@ -67,7 +125,7 @@ def load_clicked():
             if os.path.exists(analysis_points_path):
                 with open(analysis_points_path, 'r') as f:
                     analysis_points = json.load(f)
-                    #print(f"Loaded analysis points: {analysis_points}")  # Debug check
+                    # print(f"Loaded analysis points: {analysis_points}")  # Debug check
             else:
                 print("analysis_points.json not found")  # Debug output
                 analysis_points = {}
@@ -146,11 +204,15 @@ def update_tree(root_item, index):
 
 def replot():
     """Update plot and data tree when user selects a trace."""
-    plot.clear()
+    global voltage_plot, first_deriv_plot, second_deriv_plot
+
+    # Clear data tree
     data_tree.clear()
 
     selected = tree.selectedItems()
     if len(selected) < 1:
+        # If no selection, set up voltage-only layout
+        setup_plots_voltage_only()
         return
 
     sel = selected[0]
@@ -160,7 +222,10 @@ def replot():
     for sel in selected:
         index = sel.index
         if len(index) < 4:
+            # If not a trace level, set up voltage-only layout
+            setup_plots_voltage_only()
             return
+
         # These are integers from the tree selection
         group_id = index[0]  # e.g., 0 (integer)
         series_id = index[1]  # e.g., 1 (integer)
@@ -175,29 +240,70 @@ def replot():
         trace_key = str(trace_id)
 
         trace = sel.node
-        plot.setLabel('bottom', trace.XUnit)
-        plot.setLabel('left', trace.Label, units=trace.YUnit)
         data = bundle.data[index]
         time = np.linspace(trace.XStart, trace.XStart + trace.XInterval * (len(data) - 1), len(data))
-        # Plot the main trace
-        plot.plot(time, data)
 
         # Get the file name from the bundle
         file_name = os.path.basename(bundle.file_name)
 
         # Check if we have analysis points for this file and indices
-        #print(f"Looking for points in file: {file_name}")
-        #print(f"Existing analysis_points: {json.dumps(analysis_points, indent=2)}")
-        #print(f"Points to plot: {points}")
+        has_analysis_points = (file_name in analysis_points and
+                               group_key in analysis_points[file_name] and
+                               series_key in analysis_points[file_name][group_key] and
+                               sweep_key in analysis_points[file_name][group_key][series_key] and
+                               trace_key in analysis_points[file_name][group_key][series_key][sweep_key])
 
-        if (file_name in analysis_points and
-                group_key in analysis_points[file_name] and
-                series_key in analysis_points[file_name][group_key] and
-                sweep_key in analysis_points[file_name][group_key][series_key] and
-                trace_key in analysis_points[file_name][group_key][series_key][sweep_key]):
-            points = analysis_points[file_name][group_key][series_key][sweep_key][trace_key]
+        if has_analysis_points:
+            # Set up layout with derivatives
+            setup_plots_with_derivatives()
+
+            # Set labels for all plots
+            voltage_plot.setLabel('bottom', trace.XUnit)
+            voltage_plot.setLabel('left', trace.Label, units=trace.YUnit)
+            first_deriv_plot.setLabel('bottom', trace.XUnit)
+            first_deriv_plot.setLabel('left', 'dV/dt (V/s)')
+            second_deriv_plot.setLabel('bottom', trace.XUnit)
+            second_deriv_plot.setLabel('left', 'd²V/dt² (V/s²)')
+
+            # Plot the main voltage trace
+            voltage_plot.plot(time, data, pen='w', name='Voltage')
+
+            trace_data = analysis_points[file_name][group_key][series_key][sweep_key][trace_key]
+
+            # Get the filter_cut_off from analysis_points, with fallback
+            smooth_window = trace_data.get('smooth_window', 0.01)
+
+            # use Savitzky-Golay filter for smoothing
+            dt = time[1] - time[0]
+            sg_window_s = smooth_window / 1000.0
+            win_samples = int(round(sg_window_s / dt))
+            # make odd and at least polyorder+2
+            if win_samples <= sg_polyorder + 1:
+                win_samples = sg_polyorder + 3
+            if win_samples % 2 == 0:
+                win_samples += 1
+
+            # smooth voltages and use numerical derivatives (central differences via np.gradient)
+            #NOTE difference with main.py. Here voltage is in V (to show unmodified traces) and dV/dt is in V/s (also used as thershold value) but d2V/dt2 is in V/ms^2 (to remove 1e6 in the number on the axes)
+            voltage_filt = savgol_filter(data, window_length=win_samples, polyorder=sg_polyorder)
+            d1 = np.gradient(voltage_filt, dt)
+            d1_in_V_per_s = savgol_filter(d1, window_length=win_samples, polyorder=sg_polyorder)
+            d2 = np.gradient(d1_in_V_per_s, dt)
+            d2 = d2 / V_to_mV
+            d2 = d2 / V_to_mV
+            #the 1st is V/s and 2nd is V/ms^2
+            d2_in_V_per_s_s = savgol_filter(d2, window_length=win_samples,
+                                    polyorder=sg_polyorder)
+
+            # Plot derivatives
+            first_deriv_plot.plot(time, d1, pen='blue', name='1st Derivative (raw)')
+            first_deriv_plot.plot(time, d1_in_V_per_s, pen='w', name='1st Derivative (filtered)')
+            second_deriv_plot.plot(time, d2, pen='blue', name='2nd Derivative (raw)')
+            second_deriv_plot.plot(time, d2_in_V_per_s_s, pen='w', name='2nd Derivative (filtered)')
+
+            points = trace_data
             # Plot each type of point with different symbols and colors
-            symbols = {
+            voltage_symbols = {
                 'threshold': ('o', 'red', 'Threshold'),
                 'threshold_2nd': ('o', 'brown', 'Threshold_2nd'),
                 'half_duration_start': ('s', 'blue', 'Half Duration Start'),
@@ -207,8 +313,19 @@ def replot():
                 'dvdt_max': ('p', 'cyan', 'Max dV/dt')
             }
 
-            for point_type, (symbol, color, label) in symbols.items():
-                if points[point_type]:  # If we have points of this type
+            d1_symbols = {
+                'threshold_v1': ('o', 'red', 'Threshold')
+            }
+
+            d2_symbols = {
+                'd2_threshold': ('o', 'brown', 'Threshold_2nd'),
+                'd2_peak1': ('t', 'purple', 'Peak1 (Left)'),
+                'd2_peak2': ('d', 'yellow', 'Peak2 (Right)')
+            }
+
+            # Plot points on voltage plot
+            for point_type, (symbol, color, label) in voltage_symbols.items():
+                if points.get(point_type):  # If we have points of this type
                     t_points, v_points = zip(*points[point_type])
                     scatter = pg.ScatterPlotItem(
                         x=t_points,
@@ -219,11 +336,51 @@ def replot():
                         brush=pg.mkBrush(color),
                         name=label
                     )
-                    plot.addItem(scatter)
+                    voltage_plot.addItem(scatter)
+
+            # Plot points on first derivative plot
+            for point_type, (symbol, color, label) in d1_symbols.items():
+                if points.get(point_type):
+                    t_points, v_points = zip(*points[point_type])
+                    scatter_deriv = pg.ScatterPlotItem(
+                        x=t_points,
+                        y=v_points,
+                        symbol=symbol,
+                        size=10,
+                        pen=pg.mkPen(None),
+                        brush=pg.mkBrush(color),
+                        name=label
+                    )
+                    first_deriv_plot.addItem(scatter_deriv)
+
+            # Plot points on 2nd derivative plot
+            for point_type, (symbol, color, label) in d2_symbols.items():
+                if points.get(point_type):
+                    t_points, v_points = zip(*points[point_type])
+                    scatter_deriv = pg.ScatterPlotItem(
+                        x=t_points,
+                        y=v_points,
+                        symbol=symbol,
+                        size=10,
+                        pen=pg.mkPen(None),
+                        brush=pg.mkBrush(color),
+                        name=label
+                    )
+                    second_deriv_plot.addItem(scatter_deriv)
+
+        else:
+            # Set up layout with voltage only (no analysis points available)
+            setup_plots_voltage_only()
+
+            # Set labels for voltage plot only
+            voltage_plot.setLabel('bottom', trace.XUnit)
+            voltage_plot.setLabel('left', trace.Label, units=trace.YUnit)
+
+            # Plot the main voltage trace
+            voltage_plot.plot(time, data, pen='w', name='Trace')
 
 
 tree.itemSelectionChanged.connect(replot)
-
 
 if __name__ == '__main__':
     if sys.flags.interactive == 0:

@@ -84,14 +84,8 @@ You can skip analysis for a given series by leaving the cell empty in the metada
    - Place your HEKA data files in the external data folder (as configured in `config.py`)
    - Create the metadata Excel file with all required columns and individual parameters for each cell (see `example metadata.xlsx`)
 
-2. **Configure analysis parameters:**
-   - Set individual cell parameters in the metadata file for cell-specific optimization
-   - Set `which_sweep_to_plot_derivatives` in `main.py` if you want to visualize derivatives for debugging
-
 3. **Run the analysis:**
-   ```bash
-   python main.py
-   ```
+   - `python main.py`
    - Performs full analysis and automatically launches the browser interface
 
 4. **Browser interface:**

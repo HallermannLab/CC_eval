@@ -602,7 +602,7 @@ def CC_eval():
                     ap_rheo_baseline_voltage = voltage[idx1].mean()
                     # Calculate delay of first AP (time from stimulus start to first AP threshold)
                     # Assuming stimulus starts at window2_ap_rheo_start
-                    ap_rheo_first_ap_delay = th_t[0] - window2_ap_rheo_start
+                    ap_rheo_first_ap_delay = th_t[0]
                     
                     ap_rheo_half_duration_1st = hd_end_t[0] - hd_start_t[0]
                     ap_rheo_threshold_1st = th_v[0]

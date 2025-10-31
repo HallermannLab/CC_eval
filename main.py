@@ -16,7 +16,7 @@ from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE, EXTERNAL_DATA_FOLD
 #from config import analysis_points
 from collections import defaultdict
 import json
-
+from statistics import median
 
 
 # --- parameters ---
@@ -366,17 +366,22 @@ def CC_eval():
         rheobase = None
         max_ap_number = None
 
+        ap_rheo_baseline_voltage = None
+        ap_rheo_first_ap_delay = None
+
         ap_rheo_half_duration_1st = None
         ap_rheo_threshold_1st = None
         ap_rheo_threshold_2nd_1st = None
         ap_rheo_amplitude_1st = None
-        ap_rheo_baseline_voltage = None
-        ap_rheo_first_ap_delay = None
 
         ap_rheo_half_duration_av = None
         ap_rheo_threshold_av = None
         ap_rheo_threshold_2nd_av = None
         ap_rheo_amplitude_av = None
+
+        ap_rheo_peak1_peak2_interval_1st = None
+
+
         ap_max_baseline_voltage = None
 
         ap_max_half_duration_1st = None
@@ -393,6 +398,7 @@ def CC_eval():
         ap_max_average_freq_all = None
         ap_max_peak1_peak2_interval_1st = None
         ap_max_peak1_peak2_interval_av = None
+        ap_max_peak1_peak2_interval_median = None
         ap_max_list_current_steps = []
         ap_max_list_ap_numbers = []
         ap_max_list_instantaneous_freq_1_2 = []
@@ -405,6 +411,7 @@ def CC_eval():
         ap_broadening_list_voltage_baseline = []
         ap_broadening_list_half_duration_1st = []
         ap_broadening_list_threshold_1st = []
+        ap_broadening_list_threshold_2nd_1st = []
         ap_broadening_list_amplitude_1st = []
 
 
@@ -608,6 +615,7 @@ def CC_eval():
                     ap_rheo_threshold_1st = th_v[0]
                     ap_rheo_threshold_2nd_1st = th_v_2nd[0]
                     ap_rheo_amplitude_1st = p_v[0] - th_v[0]
+                    ap_rheo_peak1_peak2_interval_1st = d2_peak2_t[0] - d2_peak1_t[0]
                     # Calculate average AP parameters
                     ap_rheo_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
                     ap_rheo_threshold_av = sum(th_v) / len(th_v)
@@ -757,6 +765,7 @@ def CC_eval():
                     ap_max_threshold_2nd_av = sum(th_v_2nd) / ap_number
                     ap_max_amplitude_av = sum(p_v[i] - th_v[i] for i in range(ap_number)) / ap_number
                     ap_max_peak1_peak2_interval_av = sum(d2_peak2_t[i] - d2_peak1_t[i] for i in range(ap_number)) / ap_number
+                    ap_max_peak1_peak2_interval_median = median(d2_peak2_t[i] - d2_peak1_t[i] for i in range(ap_number))
 
             axs[6].grid(True)
 
@@ -845,10 +854,12 @@ def CC_eval():
 
                     ap_broadening_list_half_duration_1st.append(float(hd_end_t[0] - hd_start_t[0]))
                     ap_broadening_list_threshold_1st.append(float(th_v[0]))
+                    ap_broadening_list_threshold_2nd_1st.append(float(th_v_2nd[0]))
                     ap_broadening_list_amplitude_1st.append(float(p_v[0] - th_v[0]))
                 else:
                     ap_broadening_list_half_duration_1st.append(None)
                     ap_broadening_list_threshold_1st.append(None)
+                    ap_broadening_list_threshold_2nd_1st.append(None)
                     ap_broadening_list_amplitude_1st.append(None)
 
             # Plot half duration of first AP vs sweep number in axs[9]
@@ -884,6 +895,9 @@ def CC_eval():
             "Rheobase": rheobase,
             "max_ap_number": max_ap_number,
 
+            "ap_rheo_baseline_voltage": ap_rheo_baseline_voltage,
+            "ap_rheo_first_ap_delay": ap_rheo_first_ap_delay,
+
             "ap_rheo_half_duration_1st": ap_rheo_half_duration_1st,
             "ap_rheo_threshold_1st": ap_rheo_threshold_1st,
             "ap_rheo_threshold_2nd_1st": ap_rheo_threshold_2nd_1st,
@@ -893,9 +907,8 @@ def CC_eval():
             "ap_rheo_threshold_av": ap_rheo_threshold_av,
             "ap_rheo_threshold_2nd_av": ap_rheo_threshold_2nd_av,
             "ap_rheo_amplitude_av": ap_rheo_amplitude_av,
-            "ap_rheo_baseline_voltage": ap_rheo_baseline_voltage,
-            "ap_rheo_first_ap_delay": ap_rheo_first_ap_delay,
-            
+            "ap_rheo_peak1_peak2_interval_1st": ap_rheo_peak1_peak2_interval_1st,
+
             "ap_max_half_duration_1st": ap_max_half_duration_1st,
             "ap_max_threshold_1st": ap_max_threshold_1st,
             "ap_max_threshold_2nd_1st": ap_max_threshold_2nd_1st,
@@ -908,6 +921,7 @@ def CC_eval():
             "ap_max_amplitude_av": ap_max_amplitude_av,
             "ap_max_peak1_peak2_interval_1st": ap_max_peak1_peak2_interval_1st,
             "ap_max_peak1_peak2_interval_av": ap_max_peak1_peak2_interval_av,
+            "ap_max_peak1_peak2_interval_median": ap_max_peak1_peak2_interval_median,
             "ap_max_instantaneous_freq_1_2": ap_max_instantaneous_freq_1_2,
             "ap_max_average_freq_all": ap_max_average_freq_all,
 
@@ -923,6 +937,7 @@ def CC_eval():
             "ap_broadening_list_voltage_baseline": ap_broadening_list_voltage_baseline,
             "ap_broadening_list_half_duration_1st": ap_broadening_list_half_duration_1st,
             "ap_broadening_list_threshold_1st": ap_broadening_list_threshold_1st,
+            "ap_broadening_list_threshold_2nd_1st": ap_broadening_list_threshold_2nd_1st,
             "ap_broadening_list_amplitude_1st": ap_broadening_list_amplitude_1st
         })
 
@@ -938,8 +953,8 @@ def CC_eval():
     # results EXCEL file
     results_df = pd.DataFrame(results)
     excel_output_path = os.path.join(output_folder_results, "results.xlsx")
-    # Create copy without the last 12 columns for export, which are stored in separate excel files below
-    export_df = results_df.iloc[:, :-12]
+    # Create copy without the last 13 columns for export, which are stored in separate excel files below
+    export_df = results_df.iloc[:, :-13]
     export_df.to_excel(excel_output_path, index=False)
 
     # lists of ap max =========================================
@@ -1015,6 +1030,7 @@ def CC_eval():
     ap_broadening_list_voltage_baseline_data = []
     ap_broadening_list_half_duration_1st_data = []
     ap_broadening_list_threshold_1st_data = []
+    ap_broadening_list_threshold_2nd_1st_data = []
     ap_broadening_list_amplitude_1st_data = []
 
     # Process each cell's data
@@ -1033,20 +1049,24 @@ def CC_eval():
         ap_broadening_list_voltage_baseline_row = {'cell_count': cell_count + 1, 'file_name': file_name}
         ap_broadening_list_half_duration_1st_row = {'cell_count': cell_count + 1, 'file_name': file_name}
         ap_broadening_list_threshold_1st_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+        ap_broadening_list_threshold_2nd_1st_row = {'cell_count': cell_count + 1, 'file_name': file_name}
         ap_broadening_list_amplitude_1st_row = {'cell_count': cell_count + 1, 'file_name': file_name}
 
-        for i, (tmp1, tmp2 ,tmp3, tmp4) in enumerate(zip(results[cell_count]['ap_broadening_list_voltage_baseline'],
+        for i, (tmp1, tmp2 ,tmp3, tmp4, tmp5) in enumerate(zip(results[cell_count]['ap_broadening_list_voltage_baseline'],
                                                                     results[cell_count]['ap_broadening_list_half_duration_1st'],
                                                                     results[cell_count]['ap_broadening_list_threshold_1st'],
+                                                                    results[cell_count]['ap_broadening_list_threshold_2nd_1st'],
                                                                     results[cell_count]['ap_broadening_list_amplitude_1st']), 1):
             ap_broadening_list_voltage_baseline_row[f'sweep_{i}'] = tmp1
             ap_broadening_list_half_duration_1st_row[f'sweep_{i}'] = tmp2
             ap_broadening_list_threshold_1st_row[f'sweep_{i}'] = tmp3
-            ap_broadening_list_amplitude_1st_row[f'sweep_{i}'] = tmp4
+            ap_broadening_list_threshold_2nd_1st_row[f'sweep_{i}'] = tmp4
+            ap_broadening_list_amplitude_1st_row[f'sweep_{i}'] = tmp5
 
         ap_broadening_list_voltage_baseline_data.append(ap_broadening_list_voltage_baseline_row)
         ap_broadening_list_half_duration_1st_data.append(ap_broadening_list_half_duration_1st_row)
         ap_broadening_list_threshold_1st_data.append(ap_broadening_list_threshold_1st_row)
+        ap_broadening_list_threshold_2nd_1st_data.append(ap_broadening_list_threshold_2nd_1st_row)
         ap_broadening_list_amplitude_1st_data.append(ap_broadening_list_amplitude_1st_row)
 
     # exporting all lists of ap max and ap broadening =========================================
@@ -1091,6 +1111,10 @@ def CC_eval():
     ap_broadening_list_threshold_1st_df = pd.DataFrame(ap_broadening_list_threshold_1st_data)
     ap_broadening_list_threshold_1st_excel_path = os.path.join(output_folder_results, "ap_broadening_list_threshold_1st.xlsx")
     ap_broadening_list_threshold_1st_df.to_excel(ap_broadening_list_threshold_1st_excel_path, index=False)
+
+    ap_broadening_list_threshold_2nd_1st_df = pd.DataFrame(ap_broadening_list_threshold_2nd_1st_data)
+    ap_broadening_list_threshold_2nd_1st_excel_path = os.path.join(output_folder_results, "ap_broadening_list_threshold_2nd_1st.xlsx")
+    ap_broadening_list_threshold_2nd_1st_df.to_excel(ap_broadening_list_threshold_2nd_1st_excel_path, index=False)
 
     ap_broadening_list_amplitude_1st_df = pd.DataFrame(ap_broadening_list_amplitude_1st_data)
     ap_broadening_list_amplitude_1st_excel_path = os.path.join(output_folder_results, "ap_broadening_list_amplitude_1st.xlsx")

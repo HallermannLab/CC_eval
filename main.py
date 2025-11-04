@@ -72,6 +72,7 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
     hd_end_v = []
     hd_end_t = []
     maxdvdt_v = []
+    maxdvdt_d1 = []
     maxdvdt_t = []
     d2_peak1_v = []
     d2_peak1_t = []
@@ -225,6 +226,7 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
             ahp_v.append(voltage[ahp_idx])
             ahp_t.append(time[ahp_idx])
             maxdvdt_v.append(voltage[dvdt_idx])
+            maxdvdt_d1.append(d1_in_V_per_s[dvdt_idx])
             maxdvdt_t.append(time[dvdt_idx])
             hd_start_v.append(half_amplitude)
             hd_start_t.append(hd_start_time)
@@ -237,7 +239,7 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
 
     ap_number = len(p_v)
 
-    return ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t
+    return ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_d1, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t
 
 
 def CC_eval():
@@ -380,6 +382,7 @@ def CC_eval():
         ap_rheo_amplitude_av = None
 
         ap_rheo_peak1_peak2_interval_1st = None
+        ap_rheo_maxdvdt_1st = None
 
 
         ap_max_baseline_voltage = None
@@ -577,7 +580,7 @@ def CC_eval():
 
                 di = current[idx2].mean() - current[idx1].mean()
 
-                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
+                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_d1, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
                     time, voltage, v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
@@ -616,6 +619,7 @@ def CC_eval():
                     ap_rheo_threshold_2nd_1st = th_v_2nd[0]
                     ap_rheo_amplitude_1st = p_v[0] - th_v[0]
                     ap_rheo_peak1_peak2_interval_1st = d2_peak2_t[0] - d2_peak1_t[0]
+                    ap_rheo_maxdvdt_1st = maxdvdt_d1[0]
                     # Calculate average AP parameters
                     ap_rheo_half_duration_av = sum(hd_end_t[i] - hd_start_t[i] for i in range(ap_number)) / ap_number
                     ap_rheo_threshold_av = sum(th_v) / len(th_v)
@@ -687,7 +691,7 @@ def CC_eval():
                 baseline_voltage = voltage[idx1].mean()
                 ap_max_list_voltage_baseline.append(float(baseline_voltage))
 
-                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
+                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_d1, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
                     time, voltage, v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
@@ -827,7 +831,7 @@ def CC_eval():
                 baseline_voltage = voltage[idx1].mean()
                 ap_broadening_list_voltage_baseline.append(float(baseline_voltage))  # Convert numpy.float64 to Python float
 
-                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
+                ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_d1, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
                     time, voltage, v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
                     window_for_searching_threshold, window_for_searching_ahp,
                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
@@ -907,6 +911,7 @@ def CC_eval():
             "ap_rheo_threshold_av": ap_rheo_threshold_av,
             "ap_rheo_threshold_2nd_av": ap_rheo_threshold_2nd_av,
             "ap_rheo_amplitude_av": ap_rheo_amplitude_av,
+            "ap_rheo_maxdvdt_1st": ap_rheo_maxdvdt_1st,
             "ap_rheo_peak1_peak2_interval_1st": ap_rheo_peak1_peak2_interval_1st,
 
             "ap_max_half_duration_1st": ap_max_half_duration_1st,

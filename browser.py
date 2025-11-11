@@ -1,10 +1,18 @@
+try:
+    import config
+except ImportError:
+    print(
+        "\nERROR: 'config.py' not found.\n"
+        "Please create a local 'config.py' by copying 'config_template.py' and "
+        "adjusting the paths for your system.\n"
+    )
+    raise SystemExit(1)
 import os, sys
 import pyqtgraph as pg
 import numpy as np
 import heka_reader
 from pyqtgraph.Qt import QtWidgets, QtCore
 import pandas as pd
-from config import IMPORT_FOLDER, METADATA_FILE, EXTERNAL_DATA_FOLDER
 import json
 from scipy.signal import savgol_filter
 
@@ -116,12 +124,12 @@ def load_clicked():
     global analysis_points  # Declare as global to ensure updates are accessible everywhere
     try:
         # Read metadata file
-        metadata_df = pd.read_excel(METADATA_FILE)
+        metadata_df = pd.read_excel(config.METADATA_FILE)
         file_names = metadata_df['file_name'].tolist()
 
         # Read analysis points
         try:
-            analysis_points_path = os.path.join(IMPORT_FOLDER, "analysis_points.json")
+            analysis_points_path = os.path.join(config.IMPORT_FOLDER, "analysis_points.json")
             if os.path.exists(analysis_points_path):
                 with open(analysis_points_path, 'r') as f:
                     analysis_points = json.load(f)
@@ -143,7 +151,7 @@ def load_clicked():
 
         if selected_action:
             selected_file = selected_action.text()
-            dat_path = os.path.join(EXTERNAL_DATA_FOLDER, selected_file)
+            dat_path = os.path.join(config.EXTERNAL_DATA_FOLDER, selected_file)
             if os.path.exists(dat_path):
                 load(dat_path)
             else:

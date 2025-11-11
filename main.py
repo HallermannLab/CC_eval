@@ -1,19 +1,21 @@
+try:
+    import config
+except ImportError:
+    print(
+        "\nERROR: 'config.py' not found.\n"
+        "Please create a local 'config.py' by copying 'config_template.py' and "
+        "adjusting the paths for your system.\n"
+    )
+    raise SystemExit(1)
 import os
 import sys
 from datetime import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-#from scipy.misc import derivative
-from scipy.stats import linregress
-#from scipy import signal
 from scipy.signal import savgol_filter, find_peaks
 import heka_reader
-import pyqtgraph as pg
-from pyqtgraph.Qt import QtWidgets, QtCore
 import git_save as myGit
-from config import ROOT_FOLDER, IMPORT_FOLDER, METADATA_FILE, EXTERNAL_DATA_FOLDER
-#from config import analysis_points
 from collections import defaultdict
 import json
 from statistics import median
@@ -246,7 +248,7 @@ def CC_eval():
 
     # --- Create Output Folders ---
     timestamp = datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
-    output_folder = os.path.join(ROOT_FOLDER, f"output_SH_{timestamp}")
+    output_folder = os.path.join(config.ROOT_FOLDER, f"output_{config.MY_INITIAL}_{timestamp}")
     os.makedirs(output_folder, exist_ok=True)
 
     output_folder_results = os.path.join(output_folder, "results")
@@ -259,7 +261,7 @@ def CC_eval():
     os.makedirs(output_folder_used_data_and_code, exist_ok=True)
 
     # --- Load Metadata ---
-    metadata_df = pd.read_excel(METADATA_FILE)
+    metadata_df = pd.read_excel(config.METADATA_FILE)
     # save used data
     metadata_df.to_excel(os.path.join(output_folder_used_data_and_code, "my_data.xlsx"), index=False)
 
@@ -350,7 +352,7 @@ def CC_eval():
         maximal_ap_duration = row['maximal_ap_duration']
         maximal_relative_amplitude_decline = row['maximal_relative_amplitude_decline']
 
-        dat_path = os.path.join(EXTERNAL_DATA_FOLDER, file_name)
+        dat_path = os.path.join(config.EXTERNAL_DATA_FOLDER, file_name)
         try:
             bundle = heka_reader.Bundle(dat_path)
         except Exception as e:
@@ -1136,7 +1138,7 @@ def CC_eval():
 
     # save points =========================================
     # Save analysis points to JSON file
-    analysis_points_path = os.path.join(IMPORT_FOLDER, "analysis_points.json")
+    analysis_points_path = os.path.join(config.IMPORT_FOLDER, "analysis_points.json")
     analysis_points_output_path = os.path.join(output_folder_used_data_and_code, "analysis_points.json")
 
     # Convert defaultdict to regular dict for JSON serialization

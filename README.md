@@ -29,12 +29,12 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
 ## Configuration
 
 ### Data Folder Setup
-The tool supports external data folders for flexible file organization. Configure the paths in `config.py`:
+Configure the paths in `config.py`. You should copy `config_templates.py` to `config.py` and adjust the paths to your local paths and your initials. Note that `config.py` is excluded from version control (see `.gitignore`).
 
 ### Metadata File Requirements
-Create a metadata Excel file (`metadata.xlsx`) in your import folder with all of the following columns. Each cell requires individual parameter values for optimal analysis:
+Create a metadata Excel file (`metadata.xlsx`) in your IMPORT_FOLDER defined in `config.py`. Copy it from `example metadata.xlsx`. Each cell requires individual parameter values allowing cell-specific adjustments of the parameters for optimal analysis:
 
-#### Example Metadata File Structure (see provided `example metadata.xlsx`):
+#### Example Metadata File Structure (see provided `example metadata.xlsx`) CAVE OUTDATED:
 | file_name | rmp_series | rin_series | ap_rheo_series | ap_max_series | ap_broadening_series | rin_series_from_current | rin_series_to_current | window1_rin_start | window1_rin_end | window2_rin_start | window2_rin_end | window1_ap_rheo_start | window1_ap_rheo_end | window2_ap_rheo_start | window2_ap_rheo_end | window1_ap_max_start | window1_ap_max_end | window2_ap_max_start | window2_ap_max_end | v_threshold | dvdt_threshold | smooth_window | fraction_of_max_of_2nd_derivative | window_for_searching_threshold | window_for_searching_ahp | minimal_ap_interval | minimal_ap_duration | maximal_ap_duration | maximal_relative_amplitude_decline |
 |-----------|------------|------------|----------------|---------------|---------------------|------------------------|----------------------|-------------------|-----------------|-------------------|------------------|----------------------|---------------------|----------------------|---------------------|----------------------|--------------------|--------------------|--------------------|-----------|--------------|--------------|---------------------------------|------------------------------|-------------------------|--------------------|--------------------|--------------------|---------------------------------|
 | cell_001.dat | 1 | 2 | 3 | 4 | 5 | -50 | 50 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | -25 | 15 | 1500 | 0.3 | 0.002 | 0.01 | 0.001 | 0.0005 | 0.005 | 0.8 |
@@ -42,7 +42,7 @@ Create a metadata Excel file (`metadata.xlsx`) in your import folder with all of
 | cell_003.dat | 1 | 2 | 3 | 4 | 5 | -50 | 50 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | 0.01 | 0.09 | 0.30 | 0.39 | -20 | 18 | 1200 | 0.3 | 0.002 | 0.01 | 0.001 | 0.0004 | 0.005 | 0.8 |
 
 
-#### Columns Explained:
+#### Columns Explained (CAVE OUTDATED):
 
 **Basic Recording Information:**
 - `file_name`: Name of the HEKA data file
@@ -182,3 +182,5 @@ The trace browser has been modified to:
 - Superimpose analysis points on action potential traces
 - Display 1st and 2nd derivative plots with detected peaks
 - Provide interactive visualization of analysis results with color-coded parameter markers
+
+For questions, please contact stefan_jens.hallermann@uni-leipzig.de

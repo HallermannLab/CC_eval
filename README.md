@@ -29,7 +29,7 @@ A Python-based tool for analyzing electrophysiological recordings, specifically 
 ## Configuration
 
 ### Data Folder Setup
-Configure the paths in `config.py`. You should copy `config_templates.py` to `config.py` and adjust the paths to your local paths and your initials. Note that `config.py` is excluded from version control (see `.gitignore`).
+Configure the paths in `config.py`. You should copy `config_templates.py` to `config.py` and adjust the paths to your local paths and your initials. Note that `config.py` is excluded from version control (see `.gitignore`). If you previously synced `config.py` you need to execute `git rm --cached config.py` to stop syncing it.
 
 ### Metadata File Requirements
 Create a metadata Excel file (`metadata.xlsx`) in your IMPORT_FOLDER defined in `config.py`. Copy it from `example metadata.xlsx`. Each cell requires individual parameter values allowing cell-specific adjustments of the parameters for optimal analysis:

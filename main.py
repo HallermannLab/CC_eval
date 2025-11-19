@@ -400,18 +400,23 @@ def CC_eval():
         ap_max_amplitude_av = None
 
         ap_max_instantaneous_freq_1_2 = None
+        ap_max_instantaneous_freq_last = None
+        ap_max_freq_adaptation = None
         ap_max_average_freq_all = None
         ap_max_peak1_peak2_interval_1st = None
         ap_max_peak1_peak2_interval_av = None
         ap_max_peak1_peak2_interval_median = None
+
         ap_max_list_current_steps = []
         ap_max_list_ap_numbers = []
-        ap_max_list_instantaneous_freq_1_2 = []
         ap_max_list_half_duration_1st = []
         ap_max_list_threshold_1st = []
         ap_max_list_amplitude_1st = []
         ap_max_list_voltage_baseline = []
         ap_max_list_average_frequency = []
+        ap_max_list_instantaneous_freq_1_2 = []
+        ap_max_list_instantaneous_last = []
+        ap_max_list_freq_adaptation = []
 
         ap_broadening_list_voltage_baseline = []
         ap_broadening_list_half_duration_1st = []
@@ -702,15 +707,6 @@ def CC_eval():
                 ap_max_list_ap_numbers.append(int(ap_number))  # Convert to Python int
                 #print(f"Sweep {sweep_id + 1}: ap_number = {ap_number}")
 
-                # Calculate average frequency for this sweep
-                if ap_number >= 2:
-                    # Average frequency of all APs (Hz)
-                    total_time = p_t[-1] - p_t[0]  # Time from first to last AP
-                    average_frequency = (ap_number - 1) / total_time  # Number of intervals / total time
-                    ap_max_list_average_frequency.append(float(average_frequency))
-                else:
-                    ap_max_list_average_frequency.append(None)
-
                 if ap_number > 0:
                     sweep_points = {
                         'threshold': list(zip(th_t, [v / V_to_mV for v in th_v])),
@@ -740,26 +736,29 @@ def CC_eval():
                     ap_max_list_threshold_1st.append(None)
                     ap_max_list_amplitude_1st.append(None)
 
-                # Calculate AP frequencies
+                # Calculate various average frequencies for this sweep
                 if ap_number >= 2:
-                    # Instantaneous frequency of first two APs (Hz)
-                    ap_max_instantaneous_freq_1_2 = 1.0 / (p_t[1] - p_t[0])
-                    # Average frequency of all APs (Hz)
+                    instantaneous_freq_1_2 = 1.0 / (p_t[1] - p_t[0]) # Instantaneous frequency of first two APs (Hz)
+                    instantaneous_freq_last = 1.0 / (p_t[-1] - p_t[-2]) # Instantaneous frequency of last two APs (Hz)
                     total_time = p_t[-1] - p_t[0]  # Time from first to last AP
-                    ap_max_average_freq_all = (ap_number - 1) / total_time  # Number of intervals / total time
-                    ap_max_list_instantaneous_freq_1_2.append(float(ap_max_instantaneous_freq_1_2))
+                    average_frequency = (ap_number - 1) / total_time  # Number of intervals / total time
+                    ap_max_list_average_frequency.append(float(average_frequency))
+                    ap_max_list_instantaneous_freq_1_2.append(float(instantaneous_freq_1_2))
+                    ap_max_list_instantaneous_last.append(float(instantaneous_freq_last))
+                    ap_max_list_freq_adaptation.append(float(instantaneous_freq_last/instantaneous_freq_1_2))
                 else:
-                    ap_max_instantaneous_freq_1_2 = None
-                    ap_max_average_freq_all = None
+                    ap_max_list_average_frequency.append(None)
                     ap_max_list_instantaneous_freq_1_2.append(None)
+                    ap_max_list_instantaneous_last.append(None)
+                    ap_max_list_freq_adaptation.append(None)
 
                 # find trace with maximal number of APs
-                if ap_number > max_ap_number:
+                # if the next trace again has this amount of APs, then use these values. I.e. the last trace with the most number of APs is used for saving the parameters.
+                if ap_number >= max_ap_number and ap_number > 0:
                     max_ap_number = ap_number
                     max_ap_voltage_trace = voltage
                     max_ap_di = di
-                    # Calculate baseline voltage from window1 (before stimulus) for max AP trace
-                    ap_max_baseline_voltage = voltage[idx1].mean()                 
+                    ap_max_baseline_voltage = voltage[idx1].mean() # Calculate baseline voltage from window1 (before stimulus) for max AP trace
                     ap_max_half_duration_1st = hd_end_t[0] - hd_start_t[0]
                     ap_max_threshold_1st = th_v[0]
                     ap_max_threshold_2nd_1st = th_v_2nd[0]
@@ -772,6 +771,16 @@ def CC_eval():
                     ap_max_amplitude_av = sum(p_v[i] - th_v[i] for i in range(ap_number)) / ap_number
                     ap_max_peak1_peak2_interval_av = sum(d2_peak2_t[i] - d2_peak1_t[i] for i in range(ap_number)) / ap_number
                     ap_max_peak1_peak2_interval_median = median(d2_peak2_t[i] - d2_peak1_t[i] for i in range(ap_number))
+                    if ap_number >= 2:      #within the if for finding the trace with most APs we check if there are more then 2 APs
+                        ap_max_average_freq_all = average_frequency # calculated above
+                        ap_max_instantaneous_freq_1_2 = instantaneous_freq_1_2
+                        ap_max_instantaneous_freq_last = instantaneous_freq_last
+                        ap_max_freq_adaptation = instantaneous_freq_last/instantaneous_freq_1_2
+                    else:
+                        ap_max_average_freq_all = None
+                        ap_max_instantaneous_freq_1_2 = None
+                        ap_max_instantaneous_freq_last = None
+                        ap_max_freq_adaptation = None
 
             axs[6].grid(True)
 
@@ -929,17 +938,21 @@ def CC_eval():
             "ap_max_peak1_peak2_interval_1st": ap_max_peak1_peak2_interval_1st,
             "ap_max_peak1_peak2_interval_av": ap_max_peak1_peak2_interval_av,
             "ap_max_peak1_peak2_interval_median": ap_max_peak1_peak2_interval_median,
-            "ap_max_instantaneous_freq_1_2": ap_max_instantaneous_freq_1_2,
             "ap_max_average_freq_all": ap_max_average_freq_all,
+            "ap_max_instantaneous_freq_1_2": ap_max_instantaneous_freq_1_2,
+            "ap_max_instantaneous_freq_last": ap_max_instantaneous_freq_last,
+            "ap_max_freq_adaptation": ap_max_freq_adaptation,
 
             "ap_max_list_current_steps": ap_max_list_current_steps,
             "ap_max_list_ap_numbers": ap_max_list_ap_numbers,
-            "ap_max_list_instantaneous_freq_1_2": ap_max_list_instantaneous_freq_1_2,
             "ap_max_list_half_duration_1st": ap_max_list_half_duration_1st,
             "ap_max_list_threshold_1st": ap_max_list_threshold_1st,
             "ap_max_list_amplitude_1st": ap_max_list_amplitude_1st,
             "ap_max_list_voltage_baseline": ap_max_list_voltage_baseline,
+            "ap_max_list_instantaneous_freq_1_2": ap_max_list_instantaneous_freq_1_2,
             "ap_max_list_average_frequency": ap_max_list_average_frequency,
+            "ap_max_list_instantaneous_last": ap_max_list_instantaneous_last,
+            "ap_max_list_freq_adaptation": ap_max_list_freq_adaptation,
 
             "ap_broadening_list_voltage_baseline": ap_broadening_list_voltage_baseline,
             "ap_broadening_list_half_duration_1st": ap_broadening_list_half_duration_1st,
@@ -960,20 +973,22 @@ def CC_eval():
     # results EXCEL file
     results_df = pd.DataFrame(results)
     excel_output_path = os.path.join(output_folder_results, "results.xlsx")
-    # Create copy without the last 13 columns for export, which are stored in separate excel files below
-    export_df = results_df.iloc[:, :-13]
+    # Create copy without the last 15 columns for export, which are stored in separate excel files below
+    export_df = results_df.iloc[:, :-15]
     export_df.to_excel(excel_output_path, index=False)
 
     # lists of ap max =========================================
     # Create DataFrames for lists
     ap_max_list_current_steps_data = []
     ap_max_list_ap_numbers_data = []
-    ap_max_list_instantaneous_freq_1_2_data = []
     ap_max_list_half_duration_1st_data = []
     ap_max_list_threshold_1st_data = []
     ap_max_list_amplitude_1st_data = []
     ap_max_list_voltage_baseline_data = []
     ap_max_list_average_frequency_data = []
+    ap_max_list_instantaneous_freq_1_2_data = []
+    ap_max_list_instantaneous_last_data = []
+    ap_max_list_freq_adaptation_data = []
 
     # Process each cell's data
     for cell_count, row in metadata_df.iterrows():
@@ -1006,15 +1021,20 @@ def CC_eval():
         ap_max_list_amplitude_1st_row = {'cell_count': cell_count + 1, 'file_name': file_name}
         ap_max_list_voltage_baseline_row = {'cell_count': cell_count + 1, 'file_name': file_name}
         ap_max_list_average_frequency_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+        ap_max_list_instantaneous_last_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+        ap_max_list_freq_adaptation_row = {'cell_count': cell_count + 1, 'file_name': file_name}
 
-        for i, (tmp1, tmp2 ,tmp3, tmp4, tmp5, tmp6, tmp7, tmp8) in enumerate(zip(results[cell_count]['ap_max_list_current_steps'],
-                                                                    results[cell_count]['ap_max_list_ap_numbers'],
-                                                                    results[cell_count]['ap_max_list_instantaneous_freq_1_2'],
-                                                                    results[cell_count]['ap_max_list_half_duration_1st'],
-                                                                    results[cell_count]['ap_max_list_threshold_1st'],
-                                                                    results[cell_count]['ap_max_list_amplitude_1st'],
-                                                                    results[cell_count]['ap_max_list_voltage_baseline'],
-                                                                    results[cell_count]['ap_max_list_average_frequency']), 1):
+        for i, (tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, tmp8, tmp9, tmp10) in enumerate(
+                zip(results[cell_count]['ap_max_list_current_steps'],
+                    results[cell_count]['ap_max_list_ap_numbers'],
+                    results[cell_count]['ap_max_list_instantaneous_freq_1_2'],
+                    results[cell_count]['ap_max_list_half_duration_1st'],
+                    results[cell_count]['ap_max_list_threshold_1st'],
+                    results[cell_count]['ap_max_list_amplitude_1st'],
+                    results[cell_count]['ap_max_list_voltage_baseline'],
+                    results[cell_count]['ap_max_list_average_frequency'],
+                    results[cell_count]['ap_max_list_instantaneous_last'],
+                    results[cell_count]['ap_max_list_freq_adaptation']), 1):
             ap_max_list_current_steps_row[f'sweep_{i}'] = tmp1
             ap_max_list_ap_numbers_row[f'sweep_{i}'] = tmp2
             ap_max_list_instantaneous_freq_1_2_row[f'sweep_{i}'] = tmp3
@@ -1023,6 +1043,8 @@ def CC_eval():
             ap_max_list_amplitude_1st_row[f'sweep_{i}'] = tmp6
             ap_max_list_voltage_baseline_row[f'sweep_{i}'] = tmp7
             ap_max_list_average_frequency_row[f'sweep_{i}'] = tmp8
+            ap_max_list_instantaneous_last_row[f'sweep_{i}'] = tmp9
+            ap_max_list_freq_adaptation_row[f'sweep_{i}'] = tmp10
 
         ap_max_list_current_steps_data.append(ap_max_list_current_steps_row)
         ap_max_list_ap_numbers_data.append(ap_max_list_ap_numbers_row)
@@ -1032,6 +1054,8 @@ def CC_eval():
         ap_max_list_amplitude_1st_data.append(ap_max_list_amplitude_1st_row)
         ap_max_list_voltage_baseline_data.append(ap_max_list_voltage_baseline_row)
         ap_max_list_average_frequency_data.append(ap_max_list_average_frequency_row)
+        ap_max_list_instantaneous_last_data.append(ap_max_list_instantaneous_last_row)
+        ap_max_list_freq_adaptation_data.append(ap_max_list_freq_adaptation_row)
 
     # ap_broadening series
     ap_broadening_list_voltage_baseline_data = []
@@ -1135,6 +1159,14 @@ def CC_eval():
     ap_max_list_voltage_baseline_excel_path = os.path.join(output_folder_results, "ap_max_list_voltage_baseline.xlsx")
     ap_max_list_voltage_baseline_df.to_excel(ap_max_list_voltage_baseline_excel_path, index=False)
 
+    ap_max_list_instantaneous_last_df = pd.DataFrame(ap_max_list_instantaneous_last_data)
+    ap_max_list_instantaneous_last_excel_path = os.path.join(output_folder_results,
+                                                             "ap_max_list_instantaneous_last.xlsx")
+    ap_max_list_instantaneous_last_df.to_excel(ap_max_list_instantaneous_last_excel_path, index=False)
+
+    ap_max_list_freq_adaptation_df = pd.DataFrame(ap_max_list_freq_adaptation_data)
+    ap_max_list_freq_adaptation_excel_path = os.path.join(output_folder_results, "ap_max_list_freq_adaptation.xlsx")
+    ap_max_list_freq_adaptation_df.to_excel(ap_max_list_freq_adaptation_excel_path, index=False)
 
     # save points =========================================
     # Save analysis points to JSON file

@@ -15,7 +15,7 @@ from pyqtgraph.Qt import QtWidgets, QtCore
 import pandas as pd
 import json
 from scipy.signal import savgol_filter
-
+import ephys_reader
 
 V_to_mV = 1e3
 sg_polyorder = 3
@@ -151,15 +151,22 @@ def load_clicked():
 
         if selected_action:
             selected_file = selected_action.text()
-            dat_path = os.path.join(config.EXTERNAL_DATA_FOLDER, selected_file)
-            if os.path.exists(dat_path):
-                load(dat_path)
-            else:
-                QtWidgets.QMessageBox.warning(
-                    win,
-                    "File Not Found",
-                    f"The file {selected_file} was not found in the import folder."
-                )
+            # HEKA: file_name includes .dat (existing behavior)
+            if selected_file.lower().endswith(".dat"):
+                dat_path = os.path.join(config.EXTERNAL_DATA_FOLDER, selected_file)
+                if os.path.exists(dat_path):
+                    load(dat_path)
+                else:
+                    QtWidgets.QMessageBox.warning(
+                        win,
+                        "File Not Found",
+                        f"The file {selected_file} was not found in the data folder."
+                    )
+                return
+
+            # ABF: file_name is root (e.g. "24o10"); bundle will resolve series ABFs via metadata
+            load(selected_file)
+
     except Exception as e:
         QtWidgets.QMessageBox.critical(
             win,
@@ -174,7 +181,14 @@ load_btn.clicked.connect(load_clicked)
 def load(file_name):
     """Load a new .dat file into the browser."""
     global bundle, tree_items
-    bundle = heka_reader.Bundle(file_name)
+    if str(file_name).lower().endswith(".dat"):
+        bundle = ephys_reader.Bundle(file_name)
+    else:
+        bundle = ephys_reader.Bundle(
+            file_name,
+            data_folder=config.EXTERNAL_DATA_FOLDER,
+            metadata_file=config.METADATA_FILE,
+        )
 
     # Clear and update tree
     tree.clear()

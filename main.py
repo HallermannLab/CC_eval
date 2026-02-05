@@ -19,6 +19,7 @@ import git_save as myGit
 from collections import defaultdict
 import json
 from statistics import median
+import ephys_reader
 
 
 # --- parameters ---
@@ -289,24 +290,19 @@ def CC_eval():
     for cell_count, row in metadata_df.iterrows():
         print(f"Processing cell {cell_count + 1}: {row['file_name']}")
 
-        file_name = row['file_name']
+        file_name = row['file_name']  # HEKA: "something.dat" | ABF: root like "24o10"
 
-        # Check if series values are provided and valid (not NaN, not empty, and numeric)
         def is_valid_series(value):
             if pd.isna(value):
                 return False
-            try:
-                # Try to convert to int - if it fails, it's not a valid series number
-                int_val = int(float(value))  # float() first in case it's a string like "1.0"
-                return int_val > 0  # Series numbers should be positive
-            except (ValueError, TypeError):
-                return False
+            s = str(value).strip()
+            return s != "" and s.lower() != "nan"
 
-        rmp_series_available = is_valid_series(row['rmp_series'])
-        rin_series_available = is_valid_series(row['rin_series'])
-        ap_rheo_series_available = is_valid_series(row['ap_rheo_series'])
-        ap_max_series_available = is_valid_series(row['ap_max_series'])
-        ap_broadening_series_available = is_valid_series(row['ap_broadening_series'])
+        rmp_series_available = is_valid_series(row.get('rmp_series', np.nan))
+        rin_series_available = is_valid_series(row.get('rin_series', np.nan))
+        ap_rheo_series_available = is_valid_series(row.get('ap_rheo_series', np.nan))
+        ap_max_series_available = is_valid_series(row.get('ap_max_series', np.nan))
+        ap_broadening_series_available = is_valid_series(row.get('ap_broadening_series', np.nan))
 
         # Only convert to int and subtract 1 if value is available
         rmp_series = int(float(row['rmp_series'])) - 1 if rmp_series_available else None
@@ -352,9 +348,17 @@ def CC_eval():
         maximal_ap_duration = row['maximal_ap_duration']
         maximal_relative_amplitude_decline = row['maximal_relative_amplitude_decline']
 
-        dat_path = os.path.join(config.EXTERNAL_DATA_FOLDER, file_name)
+        # === Load data ===
         try:
-            bundle = heka_reader.Bundle(dat_path)
+            if str(file_name).lower().endswith(".dat"):
+                dat_path = os.path.join(config.EXTERNAL_DATA_FOLDER, file_name)
+                bundle = ephys_reader.Bundle(dat_path)
+            else:
+                bundle = ephys_reader.Bundle(
+                    str(file_name),
+                    data_folder=config.EXTERNAL_DATA_FOLDER,
+                    metadata_file=config.METADATA_FILE,
+                )
         except Exception as e:
             print(f"Error reading {file_name}: {e}")
             continue
@@ -362,6 +366,29 @@ def CC_eval():
         group_id = 0
         fig, axs = plt.subplots(5, 2, figsize=(8, 12))
         axs = axs.flatten()
+
+        # Resolve synthetic series indices (ABF) or keep numeric ones (HEKA)
+        if str(file_name).lower().endswith(".dat"):
+            # HEKA behavior: numeric 1-based in sheet -> zero-based here
+            def to_series_id(v):
+                try:
+                    return int(float(v)) - 1
+                except Exception:
+                    return None
+
+            rmp_series = to_series_id(row['rmp_series']) if rmp_series_available else None
+            rin_series = to_series_id(row['rin_series']) if rin_series_available else None
+            ap_rheo_series = to_series_id(row['ap_rheo_series']) if ap_rheo_series_available else None
+            ap_max_series = to_series_id(row['ap_max_series']) if ap_max_series_available else None
+            ap_broadening_series = to_series_id(row['ap_broadening_series']) if ap_broadening_series_available else None
+        else:
+            # ABF behavior: series columns contain file suffixes, bundle composes series in fixed order
+            rmp_series = bundle.series_map.get("rmp_series") if rmp_series_available else None
+            rin_series = bundle.series_map.get("rin_series") if rin_series_available else None
+            ap_rheo_series = bundle.series_map.get("ap_rheo_series") if ap_rheo_series_available else None
+            ap_max_series = bundle.series_map.get("ap_max_series") if ap_max_series_available else None
+            ap_broadening_series = bundle.series_map.get("ap_broadening_series") if ap_broadening_series_available else None
+
 
         # Initialize all result variables to None (will appear as blank in Excel)
         rmp_mean = None

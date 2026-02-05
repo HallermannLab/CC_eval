@@ -7,4 +7,5 @@ fastparquet==2024.11.0
 pyarrow==20.0.0
 pyqtgraph==0.13.7
 PyQt5==5.15.11
+pyabf==2.3.8
 # maybe use pip install PyQt5 instead

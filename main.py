@@ -80,7 +80,9 @@ def valid_point_pairs(t_values, y_values):
         if t is not None and y is not None
     ]
 
-def plot_analysis_points_on_phase_page(ax_voltage, ax_d1, ax_d2, ax_phase, points, phase_peak=None):
+
+def plot_analysis_points_on_phase_page(ax_voltage, ax_d1, ax_d2, ax_phase, points, phase_peak=None,
+                                       time=None, voltage_filt=None, d1_filt=None):
     """Overlay AP analysis points using the same visual language as the browser."""
     if not points:
         return
@@ -147,6 +149,32 @@ def plot_analysis_points_on_phase_page(ax_voltage, ax_d1, ax_d2, ax_phase, point
         if phase_x_min <= threshold_2nd_mv <= phase_x_max:
             ax_phase.axvline(threshold_2nd_mv, color='brown', linestyle='--', alpha=0.4)
 
+    # Add peak1 and peak2 from 2nd derivative to phase plot using their voltage and dV/dt coordinates
+    if time is not None and voltage_filt is not None and d1_filt is not None:
+        # Plot d2_peak1 in phase plot
+        if points.get('d2_peak1'):
+            peak1_time, _ = points['d2_peak1'][0]
+            # Find the closest time index
+            time_idx = np.argmin(np.abs(time - peak1_time))
+            peak1_voltage_mv = V_to_mV * voltage_filt[time_idx]
+            peak1_d1 = d1_filt[time_idx]
+
+            if phase_x_min <= peak1_voltage_mv <= phase_x_max:
+                ax_phase.scatter(peak1_voltage_mv, peak1_d1,
+                                 marker='^', color='purple', s=25, label='Peak1 (2nd deriv)', zorder=5)
+
+        # Plot d2_peak2 in phase plot
+        if points.get('d2_peak2'):
+            peak2_time, _ = points['d2_peak2'][0]
+            # Find the closest time index
+            time_idx = np.argmin(np.abs(time - peak2_time))
+            peak2_voltage_mv = V_to_mV * voltage_filt[time_idx]
+            peak2_d1 = d1_filt[time_idx]
+
+            if phase_x_min <= peak2_voltage_mv <= phase_x_max:
+                ax_phase.scatter(peak2_voltage_mv, peak2_d1,
+                                 marker='D', color='gold', s=25, label='Peak2 (2nd deriv)', zorder=5)
+
     if phase_peak is not None:
         phase_peak_voltage_mv = V_to_mV * phase_peak["voltage_filt"]
         if phase_x_min <= phase_peak_voltage_mv <= phase_x_max:
@@ -159,7 +187,6 @@ def plot_analysis_points_on_phase_page(ax_voltage, ax_d1, ax_d2, ax_phase, point
                 label='Phase peak AIS',
                 zorder=6,
             )
-
 def plot_phase_analysis_column(axs_column, phase_data, title_prefix):
     """Plot voltage, d1, d2 and phase plot for one selected first AP."""
     ax_voltage, ax_d1, ax_d2, ax_phase = axs_column
@@ -222,7 +249,8 @@ def plot_phase_analysis_column(axs_column, phase_data, title_prefix):
         #phase_x_values = V_to_mV * voltage_filt[plot_mask]
         #ax_phase.set_xlim(float(np.nanmin(phase_x_values)), float(np.nanmax(phase_x_values)))
 
-    plot_analysis_points_on_phase_page(ax_voltage, ax_d1, ax_d2, ax_phase, points, phase_peak)
+    plot_analysis_points_on_phase_page(ax_voltage, ax_d1, ax_d2, ax_phase, points, phase_peak,
+                                       time, voltage_filt, d1_filt)
 
     for ax in axs_column:
         handles, labels = ax.get_legend_handles_labels()
@@ -749,7 +777,7 @@ def CC_eval():
             # Determine sweep range
             for sweep_id in range(n_sweeps):
                 voltage = bundle.data[group_id, series_id, sweep_id, 0]
-                current = A_to_pA * bundle.data[group_id, series_id, sweep_id, 1]
+                current = bundle.data[group_id, series_id, sweep_id, 1]
 
                 dv = voltage[idx2].mean() - voltage[idx1].mean()
                 di = current[idx2].mean() - current[idx1].mean()
@@ -758,13 +786,13 @@ def CC_eval():
                     continue
 
                 # Plot current trace
-                axs[2].plot(time, current, alpha=0.5)
+                axs[2].plot(time, A_to_pA * current, alpha=0.5)
 
                 # Plot voltage trace
                 axs[3].plot(time, V_to_mV * voltage, alpha=0.5)
 
-                delta_vs.append(dv)
-                delta_is.append(di)
+                delta_vs.append(V_to_mV * dv)
+                delta_is.append(A_to_pA * di)
 
             # Add vertical lines for analysis windows in both current and voltage plots
             for ax in [axs[2], axs[3]]:
@@ -774,7 +802,7 @@ def CC_eval():
                 ax.axvline(x=window2_rin_end, color='r', linestyle='--', alpha=0.3)
                 ax.grid(True)
 
-            delta_vs = V_to_mV * np.array(delta_vs)
+            delta_vs = np.array(delta_vs)
             delta_is = np.array(delta_is)
 
             # Linear fit: ΔV = R * ΔI (forced through zero)
@@ -869,7 +897,7 @@ def CC_eval():
 
                 if rheobase is None and ap_number > 0:
                     rheobase_voltage_trace = voltage
-                    rheobase = di
+                    rheobase = A_to_pA * di
                     # Calculate baseline voltage from window1 (before stimulus)
                     ap_rheo_baseline_voltage = voltage[idx1].mean()
                     # Calculate delay of first AP (time from stimulus start to first AP threshold)
@@ -965,7 +993,7 @@ def CC_eval():
                 axs[6].plot(time, V_to_mV * voltage, alpha=0.5, label=f'Sweep {sweep_id + 1}')
 
                 di = current[idx2].mean() - current[idx1].mean()
-                ap_max_list_current_steps.append(float(di))  # Convert numpy.float64 to Python float
+                ap_max_list_current_steps.append(A_to_pA * float(di))  # Convert numpy.float64 to Python float
                 
                 # Calculate baseline voltage for this sweep
                 baseline_voltage = voltage[idx1].mean()
@@ -1026,11 +1054,14 @@ def CC_eval():
                     ap_max_list_freq_adaptation.append(None)
 
                 # find trace with maximal number of APs
-                # if the next trace again has this amount of APs, then use these values. I.e. the last trace with the most number of APs is used for saving the parameters.
-                if ap_number >= max_ap_number and ap_number > 0:
+                # USE ap_number >= max_ap_number
+                # when you want to use the last trace with the most number of APs for saving the parameters.
+                # USE ap_number > max_ap_number
+                # when you want the first trace with the most number of APs for saving the parameters.
+                if ap_number > max_ap_number and ap_number > 0:
                     max_ap_number = ap_number
                     max_ap_voltage_trace = voltage
-                    max_ap_di = di
+                    max_ap_di = A_to_pA * di
                     ap_max_baseline_voltage = V_to_mV * voltage[idx1].mean() # Calculate baseline voltage from window1 (before stimulus) for max AP trace
                     ap_max_half_duration_1st = hd_end_t[0] - hd_start_t[0]
                     ap_max_threshold_1st = V_to_mV * th_v[0]

@@ -84,13 +84,15 @@ def setup_plots_with_derivatives():
 
     # Create three plots with proper row stretch factors
     voltage_plot = plot_widget.addPlot(row=0, col=0, title="Voltage Trace")
-    voltage_plot.addLegend()
+    voltage_plot.addLegend(offset=(10, 10))
     voltage_plot.showGrid(x=True, y=True)
 
     first_deriv_plot = plot_widget.addPlot(row=1, col=0, title="1st Derivative (dV/dt)")
+    first_deriv_plot.addLegend(offset=(10, 0))
     first_deriv_plot.showGrid(x=True, y=True)
 
     second_deriv_plot = plot_widget.addPlot(row=2, col=0, title="2nd Derivative (d²V/dt²)")
+    second_deriv_plot.addLegend(offset=(10, 0))
     second_deriv_plot.showGrid(x=True, y=True)
 
     # Set row stretch factors for 60/20/20 split

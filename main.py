@@ -85,6 +85,9 @@ def get_phase_curvature_peak(time, voltage_filt, d1_filt, d2_filt, points):
     #maxdvdt_time = points["dvdt_max"][0][0]
     #if threshold_time is None or maxdvdt_time is None or maxdvdt_time <= threshold_time:
     #    return None
+    if not points or not points.get("d2_peak1") or not points.get("d2_peak2"):
+        return None
+
     peak1_time = points["d2_peak1"][0][0]
     peak2_time = points["d2_peak2"][0][0]
     if peak1_time is None or peak2_time is None or peak2_time <= peak1_time:

@@ -107,7 +107,8 @@ def get_phase_curvature_peak(time, voltage_filt, d1_filt, d2_filt, points):
     x_second = d2_filt
     y_second = d3_filt
 
-    numerator = np.abs(x_prime * y_second - y_prime * x_second)
+    #numerator = np.abs(x_prime * y_second - y_prime * x_second)
+    numerator = x_prime * y_second - y_prime * x_second
     denominator = (x_prime ** 2 + y_prime ** 2) ** 1.5
 
     curvature = np.full_like(time, np.nan, dtype=float)
@@ -285,6 +286,7 @@ def plot_phase_analysis_column(axs_column, phase_data, title_prefix):
     d2 = phase_data["d2"]
     d2_filt = phase_data["d2_filt"]
     plot_mask = phase_data["plot_mask"]
+    plot_mask_phase = phase_data["plot_mask_phase"]
     points = phase_data["points"]
     phase_peak = phase_data["phase_peak"]
     phase_curvature_peak = phase_data["phase_curvature_peak"]
@@ -310,7 +312,7 @@ def plot_phase_analysis_column(axs_column, phase_data, title_prefix):
     ax_d2.set_xlabel("Time (s)")
     ax_d2.grid(True)
 
-    ax_phase.plot(V_to_mV * voltage_filt[plot_mask], d1_filt[plot_mask], color='black')
+    ax_phase.plot(V_to_mV * voltage_filt[plot_mask_phase], d1_filt[plot_mask_phase], color='black')
     ax_phase.set_title(f"{title_prefix}: phase plot")
     ax_phase.set_ylabel("dV/dt (V/s)")
     ax_phase.set_xlabel("voltage_filt (mV)")
@@ -365,6 +367,10 @@ def prepare_phase_analysis_data(time, voltage, smooth_window, points, phase_plot
     plot_end = peak_time + phase_plot_t2 / 1000.0
     plot_mask = (time >= plot_start) & (time <= plot_end)
 
+    plot_start_phase = peak_time - 10 / 1000.0
+    plot_end_phase = peak_time + 10 / 1000.0
+    plot_mask_phase = (time >= plot_start_phase) & (time <= plot_end_phase)
+
     phase_peak = get_first_phase_peak(
         time,
         voltage_filt,
@@ -393,6 +399,7 @@ def prepare_phase_analysis_data(time, voltage, smooth_window, points, phase_plot
         "d2": d2,
         "d2_filt": d2_filt,
         "plot_mask": plot_mask,
+        "plot_mask_phase": plot_mask_phase,
         "points": points,
         "phase_peak": phase_peak,
         "phase_curvature_peak": phase_curvature_peak,

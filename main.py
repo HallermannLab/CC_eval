@@ -122,7 +122,7 @@ def get_phase_curvature_peak(time, voltage_filt, d1_filt, d2_filt, points):
         return None
 
     finite_search_indices = search_indices[finite_mask]
-    peak_idx = finite_search_indices[np.argmax(curvature[finite_search_indices])]
+    peak_idx = finite_search_indices[np.argmin(curvature[finite_search_indices])]
 
     return {
         "time": float(time[peak_idx]),

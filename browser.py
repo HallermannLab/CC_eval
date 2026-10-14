@@ -283,6 +283,11 @@ def replot():
 
             # Get the filter_cut_off from analysis_points
             smooth_window = trace_data.get('smooth_window')
+            #print(
+            #    f"Browser using smooth_window from analysis_points.json: {smooth_window} "
+            #    f"for {file_name}, group={group_key}, series={series_key}, "
+            #    f"sweep={sweep_key}, trace={trace_key}"
+            #)
 
             voltage_filt, d1, d1_filt, d2, d2_filt = \
                 calculate_filtered_trace_and_derivatives(time, data, smooth_window)

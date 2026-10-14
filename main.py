@@ -12,8 +12,11 @@ import sys
 from datetime import datetime
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use("QtAgg")  # Force a native Qt window instead of PyCharm's SciView/"Plots" tool window
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.widgets import Slider, TextBox, Button
 from scipy.signal import find_peaks
 import heka_reader
 import git_save as myGit
@@ -625,6 +628,182 @@ def ap_analysis(time, voltage, v_threshold, dvdt_threshold, smooth_window, fract
 
     return ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_d1, maxdvdt_t, d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t
 
+def find_first_ap_rheo_trace(bundle, group_id, series_id, v_threshold, dvdt_threshold, smooth_window,
+                              fraction_of_max_of_2nd_derivative, window_for_searching_threshold,
+                              window_for_searching_ahp, minimal_ap_interval, minimal_ap_duration,
+                              maximal_ap_duration, maximal_relative_amplitude_decline):
+    """Find time/voltage of the first sweep in the rheobase series that elicits an AP.
+
+    Used only to pick a representative trace for the interactive smooth_window preview;
+    does not affect the subsequent full analysis.
+    """
+    n_sweeps = bundle.pul[group_id][series_id].NumberSweeps
+    current = bundle.data[group_id, series_id, 0, 1]
+    sampling_interval = bundle.pul[group_id][series_id][0][0].XInterval
+    time = np.arange(len(current)) * sampling_interval
+
+    for sweep_id in range(n_sweeps):
+        voltage = bundle.data[group_id, series_id, sweep_id, 0]
+        ap_number = ap_analysis(
+            time, voltage, v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
+            window_for_searching_threshold, window_for_searching_ahp,
+            minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+            maximal_relative_amplitude_decline,
+        )[0]
+        if ap_number > 0:
+            return time, voltage
+    return None, None
+
+
+def interactive_adjust_smooth_window(file_name, time, voltage, initial_smooth_window,
+                                     v_threshold, dvdt_threshold, fraction_of_max_of_2nd_derivative,
+                                     window_for_searching_threshold, window_for_searching_ahp,
+                                     minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                                     maximal_relative_amplitude_decline,
+                                     phase_plot_t1, phase_plot_t2, phase_plot_range_start, phase_plot_range_end):
+    """Interactively adjust smooth_window for one file using the rheobase first AP as preview.
+
+    Only affects the selection of smooth_window; the subsequent analysis is unchanged.
+    Returns (chosen_smooth_window, skip_further_filter_adjustments).
+    """
+    slider_min, slider_max = 0.05, 0.3
+
+    fig = plt.figure(figsize=(12, 8))
+    fig.suptitle(f"Filter adjustment (smooth_window): {file_name}")
+
+    ax_voltage = fig.add_axes([0.07, 0.72, 0.40, 0.23])
+    ax_d1 = fig.add_axes([0.07, 0.46, 0.40, 0.21], sharex=ax_voltage)
+    ax_d2 = fig.add_axes([0.07, 0.20, 0.40, 0.21], sharex=ax_voltage)
+    ax_phase = fig.add_axes([0.55, 0.20, 0.40, 0.75])
+
+    ax_slider = fig.add_axes([0.10, 0.10, 0.45, 0.03])
+    ax_textbox = fig.add_axes([0.62, 0.095, 0.10, 0.04])
+    ax_use_btn = fig.add_axes([0.10, 0.02, 0.30, 0.05])
+    ax_skip_btn = fig.add_axes([0.45, 0.02, 0.42, 0.05])
+
+    slider_init = min(max(initial_smooth_window, slider_min), slider_max)
+    slider = Slider(ax_slider, 'smooth_window', slider_min, slider_max, valinit=slider_init)
+    textbox = TextBox(ax_textbox, '', initial=f"{initial_smooth_window:.4f}")
+    use_btn = Button(ax_use_btn, 'Use this value')
+    skip_btn = Button(ax_skip_btn, 'Skip further filter adjustments')
+
+    state = {"value": initial_smooth_window, "skip_all": False}
+
+    def redraw(value):
+        for ax in (ax_voltage, ax_d1, ax_d2, ax_phase):
+            ax.clear()
+
+        ap_number, th_v, th_v1, th_t, th_v_2nd, th_t_2nd, th_d2_2nd, hd_start_t, hd_start_v, \
+            hd_end_t, hd_end_v, p_v, p_t, ahp_v, ahp_t, maxdvdt_v, maxdvdt_d1, maxdvdt_t, \
+            d2_peak1_v, d2_peak1_t, d2_peak2_v, d2_peak2_t = ap_analysis(
+                time, voltage, v_threshold, dvdt_threshold, value, fraction_of_max_of_2nd_derivative,
+                window_for_searching_threshold, window_for_searching_ahp,
+                minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                maximal_relative_amplitude_decline,
+            )
+
+        phase_data = None
+        if ap_number > 0:
+            sweep_points = {
+                'threshold': list(zip(th_t, th_v)),
+                'threshold_v1': list(zip(th_t, th_v1)),
+                'threshold_2nd': list(zip(th_t_2nd, th_v_2nd)),
+                'half_duration_start': list(zip(hd_start_t, hd_start_v)),
+                'half_duration_end': list(zip(hd_end_t, hd_end_v)),
+                'peak': list(zip(p_t, p_v)),
+                'ahp': list(zip(ahp_t, ahp_v)),
+                'dvdt_max': list(zip(maxdvdt_t, maxdvdt_v)),
+                'd2_peak1': valid_point_pairs(d2_peak1_t, d2_peak1_v),
+                'd2_peak2': valid_point_pairs(d2_peak2_t, d2_peak2_v),
+                'd2_threshold': list(zip(th_t_2nd, th_d2_2nd)),
+                'smooth_window': float(value)
+            }
+            phase_data = prepare_phase_analysis_data(
+                time, voltage, value, sweep_points,
+                phase_plot_t1, phase_plot_t2, phase_plot_range_start, phase_plot_range_end,
+            )
+
+        plot_phase_analysis_column([ax_voltage, ax_d1, ax_d2, ax_phase], phase_data, "Rheobase first AP")
+        fig.canvas.draw_idle()
+
+    def on_slider_change(value):
+        state["value"] = value
+        textbox.set_val(f"{value:.4f}")
+        redraw(value)
+
+    def on_textbox_submit(text):
+        try:
+            value = float(text)
+        except ValueError:
+            return
+        if slider_min <= value <= slider_max:
+            slider.set_val(value)  # triggers on_slider_change -> redraw + textbox sync
+        else:
+            state["value"] = value
+            redraw(value)
+
+    def _apply_pending_textbox_value():
+        """Use a value typed into the text box even if Enter was not pressed."""
+        try:
+            state["value"] = float(textbox.text)
+        except ValueError:
+            pass
+
+    def on_use_clicked(event):
+        _apply_pending_textbox_value()
+        plt.close(fig)
+
+    def on_skip_clicked(event):
+        _apply_pending_textbox_value()
+        state["skip_all"] = True
+        plt.close(fig)
+
+    slider.on_changed(on_slider_change)
+    textbox.on_submit(on_textbox_submit)
+    use_btn.on_clicked(on_use_clicked)
+    skip_btn.on_clicked(on_skip_clicked)
+
+    redraw(initial_smooth_window)
+
+    was_interactive = plt.isinteractive()
+    plt.ioff()
+    try:
+        plt.show(block=True)
+    finally:
+        if was_interactive:
+            plt.ion()
+
+    print(f"        Selected smooth_window for {file_name}: {state['value']}")
+    return state["value"], state["skip_all"]
+
+
+def adjust_smooth_window_for_cell(bundle, group_id, series_id, file_name,
+                                  v_threshold, dvdt_threshold, smooth_window,
+                                  fraction_of_max_of_2nd_derivative,
+                                  window_for_searching_threshold, window_for_searching_ahp,
+                                  minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                                  maximal_relative_amplitude_decline,
+                                  phase_plot_t1, phase_plot_t2, phase_plot_range_start, phase_plot_range_end):
+    """Find a representative rheobase first-AP trace and let the user interactively adjust
+    smooth_window for this cell. Returns (smooth_window, skip_further_filter_adjustments)."""
+    time, voltage = find_first_ap_rheo_trace(
+        bundle, group_id, series_id, v_threshold, dvdt_threshold, smooth_window,
+        fraction_of_max_of_2nd_derivative, window_for_searching_threshold, window_for_searching_ahp,
+        minimal_ap_interval, minimal_ap_duration, maximal_ap_duration, maximal_relative_amplitude_decline,
+    )
+
+    if time is None:
+        print(f"        No AP found in rheobase series for {file_name}; skipping interactive filter adjustment.")
+        return smooth_window, False
+
+    return interactive_adjust_smooth_window(
+        file_name, time, voltage, smooth_window,
+        v_threshold, dvdt_threshold, fraction_of_max_of_2nd_derivative,
+        window_for_searching_threshold, window_for_searching_ahp,
+        minimal_ap_interval, minimal_ap_duration, maximal_ap_duration, maximal_relative_amplitude_decline,
+        phase_plot_t1, phase_plot_t2, phase_plot_range_start, phase_plot_range_end,
+    )
+
 
 def CC_eval():
 
@@ -645,7 +824,7 @@ def CC_eval():
     # --- Load Metadata ---
     metadata_df = pd.read_excel(config.METADATA_FILE)
     # save used data
-    metadata_df.to_excel(os.path.join(output_folder_used_data_and_code, "my_data.xlsx"), index=False)
+    metadata_df.to_excel(os.path.join(output_folder_used_data_and_code, "my_input_data.xlsx"), index=False)
 
     # initialize analysis points structure
     analysis_points = defaultdict(
@@ -666,6 +845,7 @@ def CC_eval():
     # --- Results Storage ---
     results = []
 
+    skip_further_filter_adjustments = False
 
     # --- Process Each Cell ---
     for cell_count, row in metadata_df.iterrows():
@@ -747,6 +927,17 @@ def CC_eval():
             continue
 
         group_id = 0
+
+        if ap_rheo_series_available and not skip_further_filter_adjustments:
+            smooth_window, skip_further_filter_adjustments = adjust_smooth_window_for_cell(
+                bundle, group_id, ap_rheo_series, file_name,
+                v_threshold, dvdt_threshold, smooth_window, fraction_of_max_of_2nd_derivative,
+                window_for_searching_threshold, window_for_searching_ahp,
+                minimal_ap_interval, minimal_ap_duration, maximal_ap_duration,
+                maximal_relative_amplitude_decline,
+                phase_plot_t1, phase_plot_t2, phase_plot_range_start, phase_plot_range_end,
+            )
+
         fig, axs = plt.subplots(5, 2, figsize=(8, 12))
         axs = axs.flatten()
 
@@ -1378,6 +1569,7 @@ def CC_eval():
         results.append({
             "cell_count": cell_count + 1,
             "file_name": file_name,
+            "smooth_window": float(smooth_window),
             "RMP_mean": rmp_mean,
             "RMP_min": rmp_min,
             "Rin_fit": rin_fit,

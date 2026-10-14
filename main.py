@@ -100,7 +100,12 @@ def get_phase_curvature_peak(time, voltage_filt, d1_filt, d2_filt, points):
     if len(search_indices) < 3:
         return None
 
-    d3_filt = np.gradient(d2_filt, time)
+    from scipy.signal import savgol_filter
+    d3 = np.gradient(d2_filt, time)
+    # Use the same window/polyorder as for d1_filt/d2_filt so all terms
+    # entering the curvature formula receive the same amount of smoothing.
+    win_samples = points.get("sg_win_samples")  # or recompute identically to calculate_filtered_trace_and_derivatives
+    d3_filt = savgol_filter(d3, window_length=win_samples, polyorder=sg_polyorder) if win_samples else d3
 
     x_prime = d1_filt
     y_prime = d2_filt

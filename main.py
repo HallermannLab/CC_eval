@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.widgets import Slider, TextBox, Button
 from scipy.signal import find_peaks
+from scipy.optimize import curve_fit
 import heka_reader
 import git_save as myGit
 from collections import defaultdict
@@ -30,6 +31,48 @@ from calculate_filtered_trace_and_derivatives import calculate_filtered_trace_an
 # --- parameters ---
 A_to_pA = 1e12
 V_to_mV = 1e3
+
+def fit_membrane_time_constant(time, voltage_mV, t_start, t_end, v_start_mV):
+    """Fit V(t) = C + (V0 - C)*exp(-(t - t_start)/tau) to the trace between t_start and t_end.
+
+    The first point of the fit is constrained to V0 = v_start_mV (baseline, mV),
+    so only tau and C are free parameters.
+
+    time in s, voltage in mV. Returns (tau in s, t_fit, v_fit in mV),
+    or (None, None, None) if the window is invalid or the fit fails.
+    """
+    if t_start is None or t_end is None or pd.isna(t_start) or pd.isna(t_end) or t_end <= t_start:
+        return None, None, None
+    if v_start_mV is None or not np.isfinite(v_start_mV):
+        return None, None, None
+
+    mask = (time >= t_start) & (time <= t_end)
+    if np.count_nonzero(mask) < 5:
+        return None, None, None
+
+    t_win = time[mask]
+    v_win = voltage_mV[mask]
+    t_rel = t_win - t_win[0]
+
+    def model(t, tau, c):
+        # At t = 0 the model equals v_start_mV by construction
+        return c + (v_start_mV - c) * np.exp(-t / tau)
+
+    n_tail = max(1, len(v_win) // 10)
+    c0 = float(np.mean(v_win[-n_tail:]))
+    tau0 = float(np.clip((t_win[-1] - t_win[0]) / 3.0, 1e-5, 5.0))
+
+    try:
+        popt, _ = curve_fit(
+            model, t_rel, v_win,
+            p0=[tau0, c0],
+            bounds=([1e-6, -np.inf], [10.0, np.inf]),
+            maxfev=10000,
+        )
+    except (RuntimeError, ValueError):
+        return None, None, None
+
+    return float(popt[0]), t_win, model(t_rel, *popt)
 
 def get_first_phase_peak(time, voltage_filt, d1_filt, peak_time, phase_plot_t1, phase_plot_t2,
                          phase_plot_range_start, phase_plot_range_end):
@@ -889,6 +932,8 @@ def CC_eval():
         window1_rin_end = row['window1_rin_end']
         window2_rin_start = row['window2_rin_start']
         window2_rin_end = row['window2_rin_end']
+        window3_rin_start = row.get('window3_rin_start')
+        window3_rin_end = row.get('window3_rin_end')
 
         window1_ap_rheo_start = row['window1_ap_rheo_start']
         window1_ap_rheo_end = row['window1_ap_rheo_end']
@@ -945,6 +990,8 @@ def CC_eval():
         rmp_mean = None
         rmp_min = None
         rin_fit = None
+        rin_tau_median = None
+        rin_list_tau = []
         rheobase = None
         max_ap_number = None
 
@@ -962,6 +1009,8 @@ def CC_eval():
         ap_rheo_amplitude_av = None
 
         ap_rheo_peak1_peak2_interval_1st = None
+        ap_rheo_peak1_amplitude_1st = None
+        ap_rheo_peak2_amplitude_1st = None
         ap_rheo_maxdvdt_1st = None
 
         ap_rheo_phase_peak_d1_filt = None
@@ -991,6 +1040,12 @@ def CC_eval():
         ap_max_peak1_peak2_interval_1st = None
         ap_max_peak1_peak2_interval_av = None
         ap_max_peak1_peak2_interval_median = None
+        ap_max_peak1_amplitude_1st = None
+        ap_max_peak1_amplitude_av = None
+        ap_max_peak1_amplitude_median = None
+        ap_max_peak2_amplitude_1st = None
+        ap_max_peak2_amplitude_av = None
+        ap_max_peak2_amplitude_median = None
 
         ap_max_phase_peak_d1_filt = None
         ap_max_phase_peak_voltage_filt = None
@@ -1101,8 +1156,22 @@ def CC_eval():
                 # Plot voltage trace
                 axs[3].plot(time, V_to_mV * voltage, alpha=0.5)
 
+                # Exponential fit for the membrane time constant (window3)
+                # first point constrained to the baseline (window1 mean)
+                baseline_mV = V_to_mV * voltage[idx1].mean()
+                tau, t_fit, v_fit = fit_membrane_time_constant(
+                    time, V_to_mV * voltage, window3_rin_start, window3_rin_end, baseline_mV)
+                if tau is not None:
+                    axs[3].plot(t_fit, v_fit, color='k', linestyle='--', linewidth=1.0, zorder=10)
+                    rin_list_tau.append(1000 * tau) #convert to ms
+                else:
+                    rin_list_tau.append(None)
+
                 delta_vs.append(V_to_mV * dv)
                 delta_is.append(A_to_pA * di)
+
+            valid_taus = [tau_value for tau_value in rin_list_tau if tau_value is not None]
+            rin_tau_median = median(valid_taus) if valid_taus else None
 
             # Add vertical lines for analysis windows in both current and voltage plots
             for ax in [axs[2], axs[3]]:
@@ -1222,6 +1291,8 @@ def CC_eval():
                         ap_rheo_peak1_peak2_interval_1st = d2_peak2_t[0] - d2_peak1_t[0]
                     else:
                         ap_rheo_peak1_peak2_interval_1st = None
+                    ap_rheo_peak1_amplitude_1st = d2_peak1_v[0]  # None if peak1 not found
+                    ap_rheo_peak2_amplitude_1st = d2_peak2_v[0]  # None if peak2 not found
                     ap_rheo_maxdvdt_1st = maxdvdt_d1[0]
 
                     ap_rheo_phase_data = prepare_phase_analysis_data(
@@ -1436,6 +1507,27 @@ def CC_eval():
                         ap_max_peak1_peak2_interval_av = None
                         ap_max_peak1_peak2_interval_median = None
 
+                    # Amplitudes of 2nd-derivative peak1 / peak2
+                    valid_peak1_amplitudes = [v for v in d2_peak1_v[:ap_number] if v is not None]
+                    valid_peak2_amplitudes = [v for v in d2_peak2_v[:ap_number] if v is not None]
+
+                    ap_max_peak1_amplitude_1st = d2_peak1_v[0]
+                    ap_max_peak2_amplitude_1st = d2_peak2_v[0]
+
+                    if valid_peak1_amplitudes:
+                        ap_max_peak1_amplitude_av = sum(valid_peak1_amplitudes) / len(valid_peak1_amplitudes)
+                        ap_max_peak1_amplitude_median = median(valid_peak1_amplitudes)
+                    else:
+                        ap_max_peak1_amplitude_av = None
+                        ap_max_peak1_amplitude_median = None
+
+                    if valid_peak2_amplitudes:
+                        ap_max_peak2_amplitude_av = sum(valid_peak2_amplitudes) / len(valid_peak2_amplitudes)
+                        ap_max_peak2_amplitude_median = median(valid_peak2_amplitudes)
+                    else:
+                        ap_max_peak2_amplitude_av = None
+                        ap_max_peak2_amplitude_median = None
+
                     if ap_number >= 2:      #within the if for finding the trace with most APs we check if there are more then 2 APs
                         ap_max_average_freq_all = average_frequency # calculated above
                         ap_max_instantaneous_freq_1_2 = instantaneous_freq_1_2
@@ -1573,6 +1665,7 @@ def CC_eval():
             "RMP_mean": rmp_mean,
             "RMP_min": rmp_min,
             "Rin_fit": rin_fit,
+            "ap_rin_tau_median": rin_tau_median,
             "Rheobase": rheobase,
             "max_ap_number": max_ap_number,
 
@@ -1590,6 +1683,8 @@ def CC_eval():
             "ap_rheo_amplitude_av": ap_rheo_amplitude_av,
             "ap_rheo_maxdvdt_1st": ap_rheo_maxdvdt_1st,
             "ap_rheo_peak1_peak2_interval_1st": ap_rheo_peak1_peak2_interval_1st,
+            "ap_rheo_peak1_amplitude_1st": ap_rheo_peak1_amplitude_1st,
+            "ap_rheo_peak2_amplitude_1st": ap_rheo_peak2_amplitude_1st,
             "ap_rheo_phase_peak_d1_filt": ap_rheo_phase_peak_d1_filt,
             "ap_rheo_phase_peak_voltage_filt": ap_rheo_phase_peak_voltage_filt,
             "ap_rheo_phase_curvature_peak_time": ap_rheo_phase_curvature_peak_time,
@@ -1610,6 +1705,12 @@ def CC_eval():
             "ap_max_peak1_peak2_interval_1st": ap_max_peak1_peak2_interval_1st,
             "ap_max_peak1_peak2_interval_av": ap_max_peak1_peak2_interval_av,
             "ap_max_peak1_peak2_interval_median": ap_max_peak1_peak2_interval_median,
+            "ap_max_peak1_amplitude_1st": ap_max_peak1_amplitude_1st,
+            "ap_max_peak1_amplitude_av": ap_max_peak1_amplitude_av,
+            "ap_max_peak1_amplitude_median": ap_max_peak1_amplitude_median,
+            "ap_max_peak2_amplitude_1st": ap_max_peak2_amplitude_1st,
+            "ap_max_peak2_amplitude_av": ap_max_peak2_amplitude_av,
+            "ap_max_peak2_amplitude_median": ap_max_peak2_amplitude_median,
             "ap_max_average_freq_all": ap_max_average_freq_all,
             "ap_max_instantaneous_freq_1_2": ap_max_instantaneous_freq_1_2,
             "ap_max_instantaneous_freq_last": ap_max_instantaneous_freq_last,
@@ -1631,6 +1732,8 @@ def CC_eval():
             "ap_max_list_average_frequency": ap_max_list_average_frequency,
             "ap_max_list_instantaneous_last": ap_max_list_instantaneous_last,
             "ap_max_list_freq_adaptation": ap_max_list_freq_adaptation,
+
+            "ap_rin_list_tau": rin_list_tau,
 
             "ap_broadening_list_voltage_baseline": ap_broadening_list_voltage_baseline,
             "ap_broadening_list_half_duration_1st": ap_broadening_list_half_duration_1st,
@@ -1684,6 +1787,7 @@ def CC_eval():
         "ap_max_list_average_frequency",
         "ap_max_list_instantaneous_last",
         "ap_max_list_freq_adaptation",
+        "ap_rin_list_tau",
         "ap_broadening_list_voltage_baseline",
         "ap_broadening_list_half_duration_1st",
         "ap_broadening_list_threshold_1st",
@@ -1773,6 +1877,21 @@ def CC_eval():
         ap_max_list_instantaneous_last_data.append(ap_max_list_instantaneous_last_row)
         ap_max_list_freq_adaptation_data.append(ap_max_list_freq_adaptation_row)
 
+    # lists of ap rin (membrane time constant) =========================================
+    ap_rin_list_tau_data = []
+
+    for cell_count, row in metadata_df.iterrows():
+        file_name = row['file_name']
+
+        if not is_valid_series(row['rin_series']):
+            continue
+
+        ap_rin_list_tau_row = {'cell_count': cell_count + 1, 'file_name': file_name}
+        for i, tau_value in enumerate(results[cell_count]['ap_rin_list_tau'], 1):
+            ap_rin_list_tau_row[f'sweep_{i}'] = tau_value
+
+        ap_rin_list_tau_data.append(ap_rin_list_tau_row)
+
     # ap_broadening series
     ap_broadening_list_voltage_baseline_data = []
     ap_broadening_list_half_duration_1st_data = []
@@ -1817,6 +1936,11 @@ def CC_eval():
         ap_broadening_list_amplitude_1st_data.append(ap_broadening_list_amplitude_1st_row)
 
     # exporting all lists of ap max and ap broadening =========================================
+    # ap_rin series (membrane time constant, ms)
+    ap_rin_list_tau_df = pd.DataFrame(ap_rin_list_tau_data)
+    ap_rin_list_tau_excel_path = os.path.join(output_folder_results, "ap_rin_list_tau.xlsx")
+    ap_rin_list_tau_df.to_excel(ap_rin_list_tau_excel_path, index=False)
+
     # ap_max series
     ap_max_list_current_steps_df = pd.DataFrame(ap_max_list_current_steps_data)
     ap_max_list_current_steps_excel_path = os.path.join(output_folder_results, "ap_max_list_current_steps.xlsx")
